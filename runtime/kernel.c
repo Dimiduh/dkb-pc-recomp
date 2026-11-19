@@ -668,14 +668,19 @@ static int g_ap_log;              // redirects logged so far (AP_LOG_N)
 static uintptr_t g_gen_lo, g_gen_hi;   // host code of the lifted modules: first and last function start
 static uint64_t g_ap_sent, g_ap_taken, g_ap_host, g_ap_pc, g_ap_deferred, g_ap_fail, g_ap_spin_ok;
 // TOTK_AP_SAFE (on unless 0; ab for an in-run A/B): refuse a redirect the OS could lose and expire a pending one that
-// was lost. 0 redirects as before.
-static int g_ap_safe_mode = 1;
+// was lost. 0 redirects as before. TOTK_AP_FAULT (off unless 1; ab for an in-run A/B): when a guest thread has a
+// pending preemption while returning from a page fault, redirect it via the fault handler's saved context instead of
+// waiting for ap_try between faults.
+static int g_ap_safe_mode = 1, g_ap_fault_mode;
 #define AP_LOST_NS 2000000ull   // a pending redirect this old is checked for loss
 static int g_ap_lost_log;
 #define AP_LOST_LOG_N 20
 void kern_ap_stub(void);
 uint64_t kern_ap_rip(void);
 void kern_ap_yield(void);
+#if defined(_WIN32) && defined(__x86_64__)
+static void kern_ap_fault(uint64_t *rip);
+#endif
 
 static void ap_init(void) {
     if (g_ap >= 0) return;
@@ -714,6 +719,14 @@ static void ap_init(void) {
         if (g_ap_safe_mode != 1)
             rt_log("kernel: redirects the OS could lose are %s (TOTK_AP_SAFE)",
                    g_ap_safe_mode ? "refused in the B blocks of TOTK_AB only" : "sent as before, and never expired");
+        g_ap_fault_mode = rt_knob("AP_FAULT", "0");
+        if (g_ap_fault_mode) {
+            rt_log("kernel: fault-handler preemption redirect %s (TOTK_AP_FAULT)",
+                   g_ap_fault_mode == 2 ? "in the B blocks of TOTK_AB only" : "on");
+#if defined(_WIN32) && defined(__x86_64__)
+            if (g_ap_int) plat_mem_fault_ret_hook(kern_ap_fault);
+#endif
+        }
     }
     rt_log("kernel: asynchronous preemption of virtual cores %s, priority inheritance and preemption disable %s; lifted "
            "code exe+%#llx-exe+%#llx", g_ap_int ? "on" : "off", g_ap ? "on (TOTK_ASYNC_PREEMPT=0 turns all off)" : "off",
@@ -1852,6 +1865,32 @@ void kern_ap_yield(void) {
     }
     unlock();
 }
+
+#if defined(_WIN32) && defined(__x86_64__)
+// Runs inside fault_veh on the faulting guest thread right before NtContinue resumes execution. Writing *rip here
+// modifies the exception's saved context so NtContinue enters kern_ap_stub cleanly outside exception dispatch.
+static void kern_ap_fault(uint64_t *rip) {
+    if (!RT_KNOB_ON(g_ap_fault_mode)) return;
+    RtThread *t = tcur;
+    if (!t || !__atomic_load_n(&t->preempt, __ATOMIC_ACQUIRE)) return;
+    if (__atomic_load_n(&t->host_depth, __ATOMIC_RELAXED) > 0) return;
+    uint64_t r = *rip;
+    if (r < g_gen_lo || r > g_gen_hi) return;
+    lock();
+    if (t->cur_core >= 0 && t->preempt && !t->ap_pending && __atomic_load_n(&t->host_depth, __ATOMIC_RELAXED) == 0) {
+        if (ap_disabled(t)) {
+            ap_tlr(t)[1] = 1;
+            g_ap_deferred++;
+        } else if (core_better_waiter(t, t->cur_core)) {
+            t->ap_rip = r;
+            t->ap_pending = 1;
+            t->ap_sent_at = kern_now_ns();
+            *rip = (uint64_t)(uintptr_t)kern_ap_stub;
+        }
+    }
+    unlock();
+}
+#endif
 
 // SVC 0x36 SynchronizePreemptionState: a preemption deferred by disable_count happens here.
 static void ap_sync(RtThread *t) {

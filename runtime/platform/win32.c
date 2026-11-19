@@ -851,11 +851,26 @@ static void lazy_fill(uint64_t addr, uint64_t n) {
 static int (*probe_fault)(uint64_t addr, int write, uint64_t rip);
 static int (*probe_marked)(uint64_t addr, uint64_t n);
 static void (*probe_release)(uint64_t addr, uint64_t n, uintptr_t caller);
+static void (*fault_ret_hook)(uint64_t *rip);
 
 void plat_mem_probe_hooks(int (*fault)(uint64_t addr, int write, uint64_t rip), int (*marked)(uint64_t addr, uint64_t n),
                           void (*release)(uint64_t addr, uint64_t n, uintptr_t caller)) {
     probe_marked = marked, probe_release = release;
     __atomic_store_n(&probe_fault, fault, __ATOMIC_RELEASE);
+}
+
+void plat_mem_fault_ret_hook(void (*fn)(uint64_t *rip)) {
+    __atomic_store_n(&fault_ret_hook, fn, __ATOMIC_RELEASE);
+}
+
+static LONG fault_continue(EXCEPTION_POINTERS *ep) {
+    void (*fn)(uint64_t *) = __atomic_load_n(&fault_ret_hook, __ATOMIC_ACQUIRE);
+    if (fn) {
+        uint64_t rip = (uint64_t)ep->ContextRecord->Rip;
+        fn(&rip);
+        ep->ContextRecord->Rip = (DWORD64)rip;
+    }
+    return EXCEPTION_CONTINUE_EXECUTION;
 }
 
 static LONG CALLBACK fault_veh(EXCEPTION_POINTERS *ep) {
@@ -866,7 +881,7 @@ static LONG CALLBACK fault_veh(EXCEPTION_POINTERS *ep) {
     // the lazy-heap path below lets a read on a committed page that is not readable go to the crash handler.
     int (*pf)(uint64_t, int, uint64_t) = __atomic_load_n(&probe_fault, __ATOMIC_ACQUIRE);
     if (pf && er->ExceptionInformation[0] <= 1 && pf(a, (int)er->ExceptionInformation[0], (uint64_t)ep->ContextRecord->Rip))
-        return EXCEPTION_CONTINUE_EXECUTION;
+        return fault_continue(ep);
     uint64_t hi = __atomic_load_n(&lazy_end, __ATOMIC_ACQUIRE), lo = __atomic_load_n(&lazy_base, __ATOMIC_RELAXED);
     if (er->ExceptionInformation[0] <= 1 && a >= lo && a < hi) {
         MEMORY_BASIC_INFORMATION mbi;
@@ -875,18 +890,18 @@ static LONG CALLBACK fault_veh(EXCEPTION_POINTERS *ep) {
             if (mbi.State == MEM_RESERVE) {
                 ok = lazy_commit_mbi(a, lo, hi, &mbi);
                 __atomic_add_fetch(&lazy_faults, 1, __ATOMIC_RELAXED);
-                if (ok) return EXCEPTION_CONTINUE_EXECUTION;
+                if (ok) return fault_continue(ep);
                 if (!vm_query(a, &mbi, PLAT_VM_LAZY)) mbi.State = 0;   // commit failed: check if a concurrent thread committed it
             }
             if (mbi.State == MEM_COMMIT && !(mbi.Protect & PAGE_GUARD)) {
                 DWORD p = mbi.Protect & 0xff;
                 if (p == PAGE_READWRITE || (p == PAGE_READONLY && er->ExceptionInformation[0] == 0))
-                    return EXCEPTION_CONTINUE_EXECUTION;
+                    return fault_continue(ep);
             }
         }
     }
     if (er->ExceptionInformation[0] != 1) return EXCEPTION_CONTINUE_SEARCH;
-    return fault_hook(a) ? EXCEPTION_CONTINUE_EXECUTION : EXCEPTION_CONTINUE_SEARCH;
+    return fault_hook(a) ? fault_continue(ep) : EXCEPTION_CONTINUE_SEARCH;
 }
 
 void plat_mem_fault_hook(int (*fn)(uint64_t addr)) {

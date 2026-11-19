@@ -258,6 +258,10 @@ uint64_t plat_mem_lazy_faults(void);
 // none.
 void plat_mem_probe_hooks(int (*fault)(uint64_t addr, int write, uint64_t rip), int (*marked)(uint64_t addr, uint64_t n),
                           void (*release)(uint64_t addr, uint64_t n, uintptr_t caller));
+// Windows only: called right before fault_veh returns EXCEPTION_CONTINUE_EXECUTION, with a pointer to the saved rip
+// that NtContinue will resume at. The callee may rewrite *rip to redirect the thread (e.g. to a yield stub) on its
+// normal execution stack without blocking inside the vectored exception handler.
+void plat_mem_fault_ret_hook(void (*fn)(uint64_t *rip));
 uint32_t plat_mem_lazy_failure(uint64_t *addr);   // error and address of the last failed lazy commit, 0 when none
 // Starts this program again with the same arguments and ends this process with the new one's exit code (Windows), or
 // replaces this process with it (Linux). Environment changes made before the call are passed on.
