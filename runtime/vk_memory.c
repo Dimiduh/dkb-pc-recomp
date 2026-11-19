@@ -17,6 +17,7 @@
 #include "cfg.h"
 #include "gfx.h"
 #include "host.h"
+#include "mirror_budget.h"
 #include "mirror_sparse_spv.h"
 #include "nvn_api.h"
 #include "msort.h"
@@ -2857,6 +2858,25 @@ static void refuse(PoolRec *r, int why, const char *what) {
     plat_add64(&m_refused_bytes[why], (int64_t)n);
 }
 
+// TOTK_MIRROR_BUDGET: a ceiling on the VRAM all mirrors take together, so that they leave room for the textures on a
+// small card. Unset: none, mirrors are made first come, first served until the device is nearly full (the check in
+// mirror_create). "auto": the rule of mirror_budget.h, a quarter of the card and at most 3 GiB, or an eighth on a card
+// of 4.5 GiB or less. A number sets the ceiling in MiB. A pool refused here is read by the GPU from host memory. The
+// runtime uses the device-local budget as its estimate of the card's capacity.
+static uint64_t mirror_ceiling(uint64_t vram) {
+    static int64_t mib = -2;   // -2 unread, -1 auto, 0 none
+    if (mib == -2) {
+        const char *e = cfg_get("TOTK_MIRROR_BUDGET");
+        const long long amount = e ? strtoll(e, NULL, 10) : 0;
+        mib = e && !strcmp(e, "auto") ? -1 : amount > 0 ? amount : 0;
+        if (mib) rt_log("vk: mirrors are limited to %s%s of VRAM in all (TOTK_MIRROR_BUDGET)", mib < 0 ? "a share" : e,
+                        mib < 0 ? "" : " MiB");
+    }
+    if (!mib) return UINT64_MAX;
+    if (mib > 0) return (uint64_t)mib <= (UINT64_MAX >> 20) ? (uint64_t)mib << 20 : UINT64_MAX;
+    return mirror_budget_auto(vram);
+}
+
 // A mirror of BIG_MIRROR bytes or more gets a log line with the times of its parts (mirror_create) and of recording
 // the prologue that holds its first full copy (vk_mem_mirror_prologue): the first use of the 450 MiB terrain arena of
 // a layer stalled one frame for 250 ms or more (#397). Replay thread (mirror_lock when shared), like the mirror's
@@ -4712,6 +4732,13 @@ static void mirror_create(PoolRec *r, BigMirror *fill) {
         char why[128];
         snprintf(why, sizeof why, "its %.1f MiB mirror does not fit the VRAM budget (%.0f of %.0f MiB in use)",
                  n / 1048576.0, used / 1048576.0, budget / 1048576.0);
+        return refuse(r, MR_BUDGET, why);
+    }
+    uint64_t ceiling = mirror_ceiling(budget), live = (uint64_t)__atomic_load_n(&m_live_bytes, __ATOMIC_RELAXED);
+    if (live > ceiling || n > ceiling - live) {
+        char why[128];
+        snprintf(why, sizeof why, "its %.1f MiB mirror would pass the mirrors' share of VRAM (%.0f of %.0f MiB taken)",
+                 n / 1048576.0, live / 1048576.0, ceiling / 1048576.0);
         return refuse(r, MR_BUDGET, why);
     }
     uint64_t t2 = qpc();
