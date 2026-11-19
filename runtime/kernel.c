@@ -103,6 +103,7 @@ struct RtThread {
     PlatIntr *hthr;            // the host thread, for plat_intr_stop / resume; open while it may own a core
     uint64_t ap_rip;           // the interrupted host rip kern_ap_stub returns to
     uint64_t ap_last;          // the last redirect attempt on this owner
+    uint64_t ap_sent_at;       // when the pending redirect was sent
     int ap_pending;            // redirected to kern_ap_stub, which has not reached kern_ap_yield yet
     // TOTK_CORE_DIAG (holding G, except dg_host_end, which only the thread itself writes)
     uint64_t dg_since;         // as a waiter: core wait start
@@ -666,7 +667,15 @@ static int g_ap_log;              // redirects logged so far (AP_LOG_N)
 #define AP_LOG_N 40
 static uintptr_t g_gen_lo, g_gen_hi;   // host code of the lifted modules: first and last function start
 static uint64_t g_ap_sent, g_ap_taken, g_ap_host, g_ap_pc, g_ap_deferred, g_ap_fail, g_ap_spin_ok;
+// TOTK_AP_SAFE (on unless 0; ab for an in-run A/B): refuse a redirect the OS could lose and expire a pending one that
+// was lost. 0 redirects as before.
+static int g_ap_safe_mode = 1;
+#define AP_LOST_NS 2000000ull   // a pending redirect this old is checked for loss
+static int g_ap_lost_log;
+#define AP_LOST_LOG_N 20
 void kern_ap_stub(void);
+uint64_t kern_ap_rip(void);
+void kern_ap_yield(void);
 
 static void ap_init(void) {
     if (g_ap >= 0) return;
@@ -683,11 +692,13 @@ static void ap_init(void) {
                 if (f < lo) lo = f;
                 if (f > hi) hi = f;
             }
-        // The store exclusives must lie outside too: a thread stopped in one holds its granule (cpu.h, excl.c).
-        const uintptr_t host[] = {(uintptr_t)kern_ap_stub, (uintptr_t)kern_checkpoint, (uintptr_t)rt_svc,
-                                  (uintptr_t)rt_dispatch, (uintptr_t)rt_call, (uintptr_t)excl_store8,
-                                  (uintptr_t)excl_store16, (uintptr_t)excl_store32, (uintptr_t)excl_store64,
-                                  (uintptr_t)excl_store128};
+        // The store exclusives must lie outside too: a thread stopped in one holds its granule (cpu.h, excl.c). So
+        // must the stub and what it calls before kern_ap_yield clears ap_pending: ap_try takes a rip inside the range
+        // as proof that a pending redirect is not on its way (it expires it and may redirect again).
+        const uintptr_t host[] = {(uintptr_t)kern_ap_stub, (uintptr_t)kern_ap_rip, (uintptr_t)kern_ap_yield,
+                                  (uintptr_t)kern_checkpoint, (uintptr_t)rt_svc, (uintptr_t)rt_dispatch,
+                                  (uintptr_t)rt_call, (uintptr_t)excl_store8, (uintptr_t)excl_store16,
+                                  (uintptr_t)excl_store32, (uintptr_t)excl_store64, (uintptr_t)excl_store128};
         int bad = !n || lo >= hi;
         for (unsigned i = 0; i < sizeof host / sizeof *host; i++) bad |= host[i] >= lo && host[i] <= hi;
         if (bad) {
@@ -699,6 +710,10 @@ static void ap_init(void) {
             g_gen_hi = hi;
             kern_host_track = 1;
         }
+        g_ap_safe_mode = rt_knob("AP_SAFE", "1");
+        if (g_ap_safe_mode != 1)
+            rt_log("kernel: redirects the OS could lose are %s (TOTK_AP_SAFE)",
+                   g_ap_safe_mode ? "refused in the B blocks of TOTK_AB only" : "sent as before, and never expired");
     }
     rt_log("kernel: asynchronous preemption of virtual cores %s, priority inheritance and preemption disable %s; lifted "
            "code exe+%#llx-exe+%#llx", g_ap_int ? "on" : "off", g_ap ? "on (TOTK_ASYNC_PREEMPT=0 turns all off)" : "off",
@@ -966,10 +981,26 @@ enum { AP_NONE, AP_RETRY, AP_SENT };
 
 // The waiter w interrupts its target owner if that runs top-level game code (holding G; the owner is stopped only
 // between plat_intr_stop and plat_intr_resume, during which nothing here takes a lock).
+// A redirect the OS can lose (TOTK_AP_SAFE): Windows reports an owner stopped inside an exception's dispatch, where a
+// context write is overwritten when the handler continues (platform/win32.c plat_intr_stop), and ap_pending is cleared
+// only in kern_ap_yield, so one lost redirect used to leave its owner uninterruptible for good: every later ap_try
+// returned at ap_pending, and its waiters woke each millisecond and gave up without a trace. Such stops are refused now
+// (the waiter tries again a millisecond later), and a redirect still pending after AP_LOST_NS is expired as lost at
+// the next stop that finds the owner's rip in lifted code, whatever lost it. That is safe: kern_ap_stub, kern_ap_rip
+// and kern_ap_yield, which clears ap_pending, lie outside the lifted range (ap_init checks it), so an owner running
+// lifted code is not on its way to the stub and cannot take the old redirect after the new one; ap_rip is only ever
+// written there, so the stub never jumps back through a value meant for another redirect.
 static int ap_try(RtThread *w) {
     RtThread *o = w->target;
     if (!o || o->cur_core < 0 || !o->preempt) return AP_NONE;
-    if (!o->hthr || o->ap_pending) return AP_RETRY;
+    if (!o->hthr) return AP_RETRY;
+    int safe = RT_KNOB_ON(g_ap_safe_mode);
+    uint64_t now = kern_now_ns();
+    int stale = 0;   // a pending redirect old enough to be checked for loss
+    if (o->ap_pending) {
+        if (!safe || now - o->ap_sent_at < AP_LOST_NS) return AP_RETRY;
+        stale = 1;
+    }
     volatile uint16_t *tl = ap_tlr(o);
     if (__atomic_load_n(&o->host_depth, __ATOMIC_RELAXED) > 0) {
         g_ap_host++;
@@ -980,26 +1011,36 @@ static int ap_try(RtThread *w) {
         g_ap_deferred++;
         return AP_RETRY;
     }
-    uint64_t now = kern_now_ns();
     if (o->ap_last && now - o->ap_last < AP_GAP_NS) return AP_RETRY;
     o->ap_last = now;
     uint64_t rip, rsp;
-    if (!plat_intr_stop(o->hthr, &rip, &rsp)) {
+    int st = plat_intr_stop(o->hthr, &rip, &rsp);
+    if (!st) {
         g_ap_fail++;
         return AP_RETRY;
     }
-    int r = AP_RETRY;
+    int r = AP_RETRY, in_gen = rip >= g_gen_lo && rip <= g_gen_hi;
     uint64_t to = 0;
-    if (rip < g_gen_lo || rip > g_gen_hi)
+    if (stale && in_gen) {
+        if (g_ap_lost_log < AP_LOST_LOG_N) {
+            g_ap_lost_log++;
+            rt_log("kernel: the redirect of %#x p%d sent %.2f ms ago at exe+%#llx was lost (it runs at exe+%#llx)",
+                   o->handle, o->prio, (now - o->ap_sent_at) / 1e6, (unsigned long long)(o->ap_rip - plat_exe_base()),
+                   (unsigned long long)(rip - plat_exe_base()));
+        }
+        o->ap_pending = 0;
+    }
+    if (!in_gen)
         g_ap_pc++;
     else if (__atomic_load_n(&o->host_depth, __ATOMIC_RELAXED) > 0)
         g_ap_host++;
     else if (tl[0]) {
         tl[1] = 1;
         g_ap_deferred++;
-    } else {
+    } else if (!safe || st == 1) {
         o->ap_rip = rip;
         o->ap_pending = 1;
+        o->ap_sent_at = now;
         to = (uint64_t)(uintptr_t)kern_ap_stub;
     }
     if (!plat_intr_resume(o->hthr, to)) {

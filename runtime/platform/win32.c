@@ -132,16 +132,29 @@ void plat_intr_free(PlatIntr *t) {
     _aligned_free(t);
 }
 
+// CONTEXT_EXCEPTION_REQUEST makes GetThreadContext report whether the thread was stopped inside the dispatch of an
+// exception (CONTEXT_EXCEPTION_ACTIVE) or inside a system call (CONTEXT_SERVICE_ACTIVE), with
+// CONTEXT_EXCEPTION_REPORTING set when the OS reports either. A thread stopped while the kernel dispatches an access
+// violation (the lazy heap's first touch of each 64 KiB, fault_veh) reads with the faulting instruction as its rip, but
+// the kernel has already captured, or is about to capture, the context the handler's EXCEPTION_CONTINUE_EXECUTION
+// returns to; a SetThreadContext then changes a trap frame that the dispatch overwrites, and the thread goes on where
+// it faulted as if never redirected. --probe-kernel (test_redirect_fault) measured about 2% of such redirects lost,
+// every one of them with CONTEXT_EXCEPTION_ACTIVE set, and none lost with the flags clear. CoreCLR refuses to redirect
+// in both states for the same reason (dotnet/runtime src/coreclr/vm/threadsuspend.cpp, Thread::IsContextSafeToRedirect).
 int plat_intr_stop(PlatIntr *t, uint64_t *rip, uint64_t *rsp) {
     if (SuspendThread(t->h) == (DWORD)-1) return 0;
     memset(&t->ctx, 0, sizeof t->ctx);
-    t->ctx.ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER;   // set back whole, so the kernel restores every GPR
+    t->ctx.ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER | CONTEXT_EXCEPTION_REQUEST;
     if (!GetThreadContext(t->h, &t->ctx)) {
         ResumeThread(t->h);
         return 0;
     }
     *rip = t->ctx.Rip;
     *rsp = t->ctx.Rsp;
+    DWORD f = t->ctx.ContextFlags;
+    if (!(f & CONTEXT_EXCEPTION_REPORTING)) return PLAT_INTR_UNREPORTED;
+    if (f & CONTEXT_EXCEPTION_ACTIVE) return PLAT_INTR_IN_EXCEPTION;
+    if (f & CONTEXT_SERVICE_ACTIVE) return PLAT_INTR_IN_SERVICE;
     return 1;
 }
 
@@ -149,6 +162,9 @@ int plat_intr_resume(PlatIntr *t, uint64_t to) {
     int ok = 1;
     if (to) {
         t->ctx.Rip = to;
+        // Set back whole (CONTEXT_CONTROL | CONTEXT_INTEGER), so the kernel restores every GPR, without the reporting
+        // flags GetThreadContext added.
+        t->ctx.ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER;
         ok = SetThreadContext(t->h, &t->ctx) != 0;
     }
     ResumeThread(t->h);

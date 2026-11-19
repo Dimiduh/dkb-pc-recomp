@@ -48,7 +48,12 @@ typedef struct PlatIntr PlatIntr;
 PlatIntr *plat_intr_self(void);           // NULL on failure
 void plat_intr_free(PlatIntr *t);
 // Stops t and reads its instruction and stack pointers: 1 when stopped, 0 when it did not stop in time (a thread
-// blocked in the OS); t then runs on untouched.
+// blocked in the OS); t then runs on untouched. A value above 1 also means stopped, but a redirection now could be lost
+// or unsafe: t is inside the dispatch of an exception (PLAT_INTR_IN_EXCEPTION), inside a system call
+// (PLAT_INTR_IN_SERVICE), or the OS did not say (PLAT_INTR_UNREPORTED). Callers that only read where t is treat any
+// nonzero value as stopped. Only Windows reports these: a signal handler (Linux, macOS) writes the context the kernel
+// restores, so a redirection there is never lost.
+enum { PLAT_INTR_IN_EXCEPTION = 2, PLAT_INTR_IN_SERVICE, PLAT_INTR_UNREPORTED };
 int plat_intr_stop(PlatIntr *t, uint64_t *rip, uint64_t *rsp);
 // Lets a stopped t go on: at to when to is nonzero, else where it stopped. 0 when the redirection failed (t then goes
 // on where it stopped).
