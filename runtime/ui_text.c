@@ -105,6 +105,10 @@ static const char *const text_en[UI_TEXT_COUNT] = {
                                    "Automatic allows a quarter of the card, at most 3 GiB, and an eighth on a card of 4.5 GiB or less. "
                                    "Memory refused a copy is read by the GPU from system memory instead. Try it when the game slows down after a while on a card with 8 GB or less.",
     [UI_MENU_MIRROR_BUDGET_NONE] = "No limit", [UI_MENU_FMT_MIB] = "%s MiB",
+    [UI_MENU_LOD_BIAS] = "Texture detail with upscaling (experimental)",
+    [UI_MENU_LOD_BIAS_DESC] = "With FSR 3.1, FSR 4 or DLSS and Render resolution below 100%, textures are chosen for the small picture and stay soft after upscaling.\n\n"
+                              "Off: the game's own texture detail. Automatic: textures are chosen for the upscaled size, so surfaces and text on them are sharper; "
+                              "fine patterns can shimmer more. It has no effect with the game's own upscaler.\n\nApplies after a restart.",
     [UI_MENU_GPU] = "Graphics card", [UI_MENU_GPU_DESC] = "Choose which graphics card runs the game. Use Automatic unless you need to select a specific card.",
     [UI_MENU_GPU_AUTO] = "Automatic",
     [UI_MENU_PERF_OVERLAY] = "Performance overlay",
@@ -540,6 +544,10 @@ static const char *const text_ru[UI_TEXT_COUNT] = {
                                    "«Автоматически» — четверть памяти видеокарты, но не больше 3 ГиБ, и восьмая часть на карте с 4,5 ГиБ и меньше. "
                                    "Память, которой отказано в копии, GPU читает из системной памяти. Попробуйте, если на карте с 8 ГБ и меньше игра со временем замедляется.",
     [UI_MENU_MIRROR_BUDGET_NONE] = "Без предела", [UI_MENU_FMT_MIB] = "%s МиБ",
+    [UI_MENU_LOD_BIAS] = "Детализация текстур при апскейлинге (экспериментально)",
+    [UI_MENU_LOD_BIAS_DESC] = "С FSR 3.1, FSR 4 или DLSS и разрешением рендера ниже 100% текстуры выбираются для маленького изображения и остаются мягкими после апскейлинга.\n\n"
+                              "Выкл.: детализация текстур игры. Автоматически: текстуры выбираются для увеличенного размера, поверхности и текст на них чётче; "
+                              "мелкие узоры могут мерцать сильнее. С собственным апскейлером игры не действует.\n\nПрименяется после перезапуска.",
     [UI_MENU_GPU] = "Видеокарта", [UI_MENU_GPU_DESC] = "Устройство Vulkan, которое рисует игру.",
     [UI_MENU_GPU_AUTO] = "Автоматически",
     [UI_MENU_PERF_OVERLAY] = "Индикатор производительности",
