@@ -771,37 +771,66 @@ uint32_t plat_mem_lazy_failure(uint64_t *addr) {
     return __atomic_load_n(&lazy_fail_err, __ATOMIC_RELAXED);
 }
 
-// Commits the reserved pages (only those: VirtualAlloc over a committed read-only page would make it writable) of the
-// 64 KiB chunk around addr, clipped to the lazy range. 1 when no reserved page of it is left to commit, 0 when a commit
-// failed. Check-then-commit is not atomic against mem_freeze: a run found reserved here could be committed by another
-// fault and frozen read-only before our VirtualAlloc makes it writable. memory.c freeze_locked refuses a region with a
-// reserved hole in the lazy heap, which closes it for holes that exist at the freeze; the gap left is this narrow
-// window, and the handler takes no lock on purpose.
-static int lazy_commit(uint64_t addr, uint64_t lo, uint64_t hi) {
+static volatile uint64_t lazy_chunk_sz = 0x10000ull;
+
+void plat_mem_lazy_chunk(uint64_t bytes) {
+    if (bytes < 0x10000ull) bytes = 0x10000ull;
+    if (bytes > 0x400000ull) bytes = 0x400000ull;
+    uint64_t p = 0x10000ull;
+    while ((p << 1) <= bytes) p <<= 1;
+    __atomic_store_n(&lazy_chunk_sz, p, __ATOMIC_RELEASE);
+}
+
+// Commits [x, x+n) as PAGE_READWRITE, retrying briefly on commit-limit failures while a system-managed page file
+// grows asynchronously. 1 on success, 0 on failure (recording lazy_fail_addr / lazy_fail_err).
+static int lazy_commit_retry(uint64_t x, size_t n) {
+    DWORD err = 0;
+    int ok = 0;
+    for (int t = 0; t < 5 && !ok; t++) {
+        if (t) Sleep(20);
+        int op = plat_op_begin(PLAT_OP_COMMIT, x, n);
+        ok = VirtualAlloc((void *)(uintptr_t)x, n, MEM_COMMIT, PAGE_READWRITE) != NULL;
+        if (!ok) err = GetLastError();
+        plat_op_end(op, 0);
+    }
+    if (!ok) {
+        __atomic_store_n(&lazy_fail_addr, x, __ATOMIC_RELAXED);
+        __atomic_store_n(&lazy_fail_err, (uint32_t)err, __ATOMIC_RELAXED);
+        return 0;
+    }
+    return 1;
+}
+
+// Commits the reserved pages (only those: VirtualAlloc over a committed read-only page would make it writable) around
+// addr, clipped to [lo, hi). When the caller already queried addr and saw mbi->State == MEM_RESERVE, commit the chunk
+// clamped to mbi's reserved run without another VirtualQuery; when mbi is NULL (lazy_fill), walk the 64 KiB chunk by
+// region state. Check-then-commit is not atomic against mem_freeze: a run found reserved here could be committed by
+// another fault and frozen read-only before our VirtualAlloc makes it writable. memory.c freeze_locked refuses a region
+// with a reserved hole in the lazy heap, which closes it for holes that exist at the freeze; the gap left is this
+// narrow window, and the handler takes no lock on purpose.
+static int lazy_commit_mbi(uint64_t addr, uint64_t lo, uint64_t hi, const MEMORY_BASIC_INFORMATION *mbi) {
+    if (mbi && mbi->State == MEM_RESERVE) {
+        uint64_t chunk = __atomic_load_n(&lazy_chunk_sz, __ATOMIC_ACQUIRE);
+        uint64_t a = addr & ~(chunk - 1), e = a + chunk;
+        uint64_t r_lo = (uint64_t)(uintptr_t)mbi->BaseAddress, r_hi = r_lo + mbi->RegionSize;
+        if (a < lo) a = lo;
+        if (a < r_lo) a = r_lo;
+        if (e > hi) e = hi;
+        if (e > r_hi) e = r_hi;
+        if (a >= e || !lazy_commit_retry(a, (size_t)(e - a))) return 0;
+        plat_mem_lazy_mark(a, e);
+        return 1;
+    }
     uint64_t a = addr & ~0xffffull, e = a + 0x10000;
     if (a < lo) a = lo;
     if (e > hi) e = hi;
     for (uint64_t x = a, y; x < e; x = y) {
-        MEMORY_BASIC_INFORMATION mbi;
-        if (!vm_query(x, &mbi, PLAT_VM_LAZY)) return 0;
-        y = (uint64_t)(uintptr_t)mbi.BaseAddress + mbi.RegionSize;
+        MEMORY_BASIC_INFORMATION q;
+        if (!vm_query(x, &q, PLAT_VM_LAZY)) return 0;
+        y = (uint64_t)(uintptr_t)q.BaseAddress + q.RegionSize;
         if (y > e) y = e;
-        if (mbi.State != MEM_RESERVE) continue;
-        // A system-managed page file grows asynchronously: a failure at the commit limit may pass in a moment.
-        DWORD err = 0;
-        int ok = 0;
-        for (int t = 0; t < 5 && !ok; t++) {
-            if (t) Sleep(20);
-            int op = plat_op_begin(PLAT_OP_COMMIT, x, y - x);
-            ok = VirtualAlloc((void *)(uintptr_t)x, y - x, MEM_COMMIT, PAGE_READWRITE) != NULL;
-            if (!ok) err = GetLastError();
-            plat_op_end(op, 0);
-        }
-        if (!ok) {
-            __atomic_store_n(&lazy_fail_addr, x, __ATOMIC_RELAXED);
-            __atomic_store_n(&lazy_fail_err, (uint32_t)err, __ATOMIC_RELAXED);
-            return 0;
-        }
+        if (q.State != MEM_RESERVE) continue;
+        if (!lazy_commit_retry(x, (size_t)(y - x))) return 0;
     }
     if (a == (addr & ~0xffffull) && e == a + 0x10000) plat_mem_lazy_mark(a, e);   // a whole chunk, not one clipped at an end
     return 1;
@@ -812,7 +841,7 @@ static int lazy_commit(uint64_t addr, uint64_t lo, uint64_t hi) {
 static void lazy_fill(uint64_t addr, uint64_t n) {
     uint64_t hi = __atomic_load_n(&lazy_end, __ATOMIC_ACQUIRE), lo = __atomic_load_n(&lazy_base, __ATOMIC_RELAXED);
     if (!n || addr >= hi || addr + n <= lo) return;
-    for (uint64_t c = addr & ~0xffffull; c < addr + n && c < hi; c += 0x10000) lazy_commit(c < lo ? lo : c, lo, hi);
+    for (uint64_t c = addr & ~0xffffull; c < addr + n && c < hi; c += 0x10000) lazy_commit_mbi(c < lo ? lo : c, lo, hi, NULL);
 }
 
 // An access violation inside the lazy heap range on a page that is reserved, or that another thread committed
@@ -841,15 +870,19 @@ static LONG CALLBACK fault_veh(EXCEPTION_POINTERS *ep) {
     uint64_t hi = __atomic_load_n(&lazy_end, __ATOMIC_ACQUIRE), lo = __atomic_load_n(&lazy_base, __ATOMIC_RELAXED);
     if (er->ExceptionInformation[0] <= 1 && a >= lo && a < hi) {
         MEMORY_BASIC_INFORMATION mbi;
-        if (vm_query(a, &mbi, PLAT_VM_LAZY) && mbi.State == MEM_RESERVE) {
-            lazy_commit(a, lo, hi);
-            __atomic_add_fetch(&lazy_faults, 1, __ATOMIC_RELAXED);
-        }
-        // Whoever committed it (this thread or the one that won the race): retry when the access is allowed now.
-        if (vm_query(a, &mbi, PLAT_VM_LAZY) && mbi.State == MEM_COMMIT && !(mbi.Protect & PAGE_GUARD)) {
-            DWORD p = mbi.Protect & 0xff;
-            if (p == PAGE_READWRITE || (p == PAGE_READONLY && er->ExceptionInformation[0] == 0))
-                return EXCEPTION_CONTINUE_EXECUTION;
+        if (vm_query(a, &mbi, PLAT_VM_LAZY)) {
+            int ok = 0;
+            if (mbi.State == MEM_RESERVE) {
+                ok = lazy_commit_mbi(a, lo, hi, &mbi);
+                __atomic_add_fetch(&lazy_faults, 1, __ATOMIC_RELAXED);
+                if (ok) return EXCEPTION_CONTINUE_EXECUTION;
+                if (!vm_query(a, &mbi, PLAT_VM_LAZY)) mbi.State = 0;   // commit failed: check if a concurrent thread committed it
+            }
+            if (mbi.State == MEM_COMMIT && !(mbi.Protect & PAGE_GUARD)) {
+                DWORD p = mbi.Protect & 0xff;
+                if (p == PAGE_READWRITE || (p == PAGE_READONLY && er->ExceptionInformation[0] == 0))
+                    return EXCEPTION_CONTINUE_EXECUTION;
+            }
         }
     }
     if (er->ExceptionInformation[0] != 1) return EXCEPTION_CONTINUE_SEARCH;

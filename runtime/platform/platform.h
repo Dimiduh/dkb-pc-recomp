@@ -239,9 +239,11 @@ int plat_mem_access_hook(int (*fn)(uint64_t addr));
 // A write that faulted on a read-only page at addr goes to fn first; fn returns 1 when it made the page writable and
 // the write should run again, 0 to let the fault go on (to the crash handler). One hook per process.
 void plat_mem_fault_hook(int (*fn)(uint64_t addr));
-// Windows only: a read or write that faults on a reserved page inside [base, base + size) commits the 64 KiB chunk
-// around it and retries (the guest heap with TOTK_HEAP_LAZY). Lock-free in the handler; plat_mem_lazy_faults counts them.
+// Windows only: a read or write that faults on a reserved page inside [base, base + size) commits the chunk around
+// it (64 KiB by default; plat_mem_lazy_chunk changes it) and retries (the guest heap with TOTK_HEAP_LAZY). Lock-free
+// in the handler; plat_mem_lazy_faults counts them.
 void plat_mem_lazy(uint64_t base, uint64_t size);
+void plat_mem_lazy_chunk(uint64_t bytes);   // fault-handler commit size, power of two in [64 KiB, 4 MiB]
 // Windows only: what the platform knows about the commit state of the lazy range, without a system call. The end (at
 // most e) of the run of 64 KiB chunks from a that share a's state; *known is 1 when the run's chunks are known to be
 // wholly committed (by the fault handler or a plat_mem_lazy_mark), 0 when nothing is known about them.
