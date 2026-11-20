@@ -1,0 +1,28 @@
+name: DKB macOS (compile gate)
+
+# Compiles every runtime translation unit on Apple silicon without game files (tools/ci/compile_gate.py), with the
+# Homebrew packages the macOS setup asks for (tools/make_release_posix.py). The macOS release is a source package
+# that compiles on the player's Mac, so this is the only place platform/darwin.c is compiled before a release.
+
+on:
+  push:
+    branches: [bananza, main]
+    paths: ['runtime/**', 'tools/build_game.py', 'tools/ci/**', '.github/workflows/dkb-macos.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Homebrew packages
+        run: brew install llvm sdl3 molten-vk vulkan-headers vulkan-loader opus libvpx zstd
+      - name: Compile gate
+        run: python tools/ci/compile_gate.py --cc /opt/homebrew/opt/llvm/bin/clang --out build/ci-gate
