@@ -673,10 +673,10 @@ static uint64_t g_ap_sent, g_ap_taken, g_ap_host, g_ap_pc, g_ap_deferred, g_ap_f
 // inside a system call, or without the OS saying (platform.h plat_intr_stop).
 static uint64_t g_ap_reached, g_ap_lost, g_ap_exc, g_ap_svc, g_ap_unrep, g_ap_fault;
 // TOTK_AP_SAFE (on unless 0; ab for an in-run A/B): refuse a redirect the OS could lose and expire a pending one that
-// was lost. 0 redirects as before. TOTK_AP_FAULT (off unless 1; ab for an in-run A/B): when a guest thread has a
+// was lost. 0 redirects as before. TOTK_AP_FAULT (on unless 0; ab for an in-run A/B): when a guest thread has a
 // pending preemption while returning from a page fault, redirect it via the fault handler's saved context instead of
 // waiting for ap_try between faults.
-static int g_ap_safe_mode = 1, g_ap_fault_mode;
+static int g_ap_safe_mode = 1, g_ap_fault_mode = 1;
 #define AP_LOST_NS 2000000ull   // a pending redirect this old is checked for loss
 static int g_ap_lost_log;
 #define AP_LOST_LOG_N 20
@@ -724,14 +724,13 @@ static void ap_init(void) {
         if (g_ap_safe_mode != 1)
             rt_log("kernel: redirects the OS could lose are %s (TOTK_AP_SAFE)",
                    g_ap_safe_mode ? "refused in the B blocks of TOTK_AB only" : "sent as before, and never expired");
-        g_ap_fault_mode = rt_knob("AP_FAULT", "0");
-        if (g_ap_fault_mode) {
+        g_ap_fault_mode = rt_knob("AP_FAULT", "1");
+        if (g_ap_fault_mode != 1)
             rt_log("kernel: fault-handler preemption redirect %s (TOTK_AP_FAULT)",
-                   g_ap_fault_mode == 2 ? "in the B blocks of TOTK_AB only" : "on");
+                   g_ap_fault_mode ? "in the B blocks of TOTK_AB only" : "off");
 #if defined(_WIN32) && defined(__x86_64__)
-            if (g_ap_int) plat_mem_fault_ret_hook(kern_ap_fault);
+        if (g_ap_int && g_ap_fault_mode != 0) plat_mem_fault_ret_hook(kern_ap_fault);
 #endif
-        }
     }
     rt_log("kernel: asynchronous preemption of virtual cores %s, priority inheritance and preemption disable %s; lifted "
            "code exe+%#llx-exe+%#llx", g_ap_int ? "on" : "off", g_ap ? "on (TOTK_ASYNC_PREEMPT=0 turns all off)" : "off",
