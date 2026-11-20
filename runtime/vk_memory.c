@@ -1196,6 +1196,86 @@ static uint32_t reg_max[RT_ADDRESS_LIMIT >> REG_SHIFT];
 // (vk_gpu_written_into), allocated per chunk on the first such stamp. While a page's generation is still that stamp,
 // mirror_sync leaves the page out of its copies.
 static uint32_t *own_chunk[GEN_CHUNKS];   // gen_lock
+// Per-page bitmap of pages the CPU or host wrote since initial reserve or last decommit (gen_lock): 1 bit per 4 KiB
+// page, 1024 words per 256 MiB chunk. Staged mirrors' GPU writes stay in mbuf and do not set this bit, so staged_runs
+// skips GPU-only and decommitted zero pages on reload.
+#define CPU_WRITTEN_WORDS (GEN_PER_CHUNK / 64u)
+static uint64_t *cpu_written_chunk[GEN_CHUNKS];   // gen_lock
+
+static void cpu_written_set_page(uint64_t a) {   // gen_lock held exclusively
+    uint64_t ci = a >> GEN_CHUNK_SHIFT;
+    if (ci >= GEN_CHUNKS) return;
+    if (!cpu_written_chunk[ci]) {
+        cpu_written_chunk[ci] = calloc(CPU_WRITTEN_WORDS, sizeof(uint64_t));
+        if (!cpu_written_chunk[ci]) rt_fatal("vk: out of memory for CPU-written page bitmap");
+    }
+    uint64_t pi = (a >> GEN_PAGE_SHIFT) & (GEN_PER_CHUNK - 1);
+    cpu_written_chunk[ci][pi >> 6] |= 1ull << (pi & 63);
+}
+
+static void cpu_written_set_range(uint64_t lo, uint64_t hi) {   // gen_lock held exclusively
+    for (uint64_t a = lo; a < hi; a += 1ull << GEN_PAGE_SHIFT) cpu_written_set_page(a);
+}
+
+// Acquires gen_lock exclusively; callers invoke it after releasing own_lock/pool_lock to keep lock order.
+static void cpu_written_mark_range(uint64_t a, uint64_t n) {
+    if (!n || a >= RT_ADDRESS_LIMIT) return;
+    uint64_t end = n > RT_ADDRESS_LIMIT - a ? RT_ADDRESS_LIMIT : a + n;
+    uint64_t lo = a & ~0xfffull, hi = (end + 0xfff) & ~0xfffull;
+    if (hi > RT_ADDRESS_LIMIT) hi = RT_ADDRESS_LIMIT;
+    if (lo >= hi) return;
+    gen_lock_x();
+    cpu_written_set_range(lo, hi);
+    plat_mutex_unlock(&gen_lock);
+}
+
+// memory.c decommit (under memory.c's lock, after plat_mem_decommit and frz_lock release): decommitted pages return
+// zeroed, so drain any stale OS write-watch bits in [a, a+n) and clear cpu_written_chunk and own_chunk for those pages.
+static void mem_decommit_cb(uint64_t a, uint64_t n) {
+    if (!n || a >= RT_ADDRESS_LIMIT) return;
+    uint64_t end = n > RT_ADDRESS_LIMIT - a ? RT_ADDRESS_LIMIT : a + n;
+    uint64_t lo = a & ~0xfffull, hi = (end + 0xfff) & ~0xfffull;
+    if (hi > RT_ADDRESS_LIMIT) hi = RT_ADDRESS_LIMIT;
+    if (lo >= hi) return;
+    gen_lock_x();
+    const uint64_t max = sizeof gen_pages / sizeof *gen_pages;
+    for (uint64_t cur = lo; cur < hi;) {
+        uint64_t got = mem_written_pages(cur, hi - cur, gen_pages, max);
+        if (got == UINT64_MAX || got < max) break;
+        uint64_t next = (gen_pages[got - 1] & ~0xfffull) + (1ull << GEN_PAGE_SHIFT);
+        if (next <= cur) break;
+        cur = next;
+    }
+    for (uint64_t x = lo; x < hi;) {
+        uint64_t ci = x >> GEN_CHUNK_SHIFT;
+        uint64_t ce = (ci + 1) << GEN_CHUNK_SHIFT;
+        if (ce > hi) ce = hi;
+        uint64_t *cw = cpu_written_chunk[ci];
+        if (cw) {
+            uint64_t p0 = (x >> GEN_PAGE_SHIFT) & (GEN_PER_CHUNK - 1);
+            uint64_t p1 = p0 + ((ce - x) >> GEN_PAGE_SHIFT);
+            uint64_t w0 = p0 >> 6, w1 = (p1 - 1) >> 6;
+            if (w0 == w1) {
+                uint64_t cnt = p1 - p0;
+                uint64_t mask = cnt == 64 ? ~0ull : ((1ull << cnt) - 1) << (p0 & 63);
+                cw[w0] &= ~mask;
+            } else {
+                cw[w0] &= ~(~0ull << (p0 & 63));
+                if (w1 > w0 + 1) memset(&cw[w0 + 1], 0, (size_t)(w1 - w0 - 1) * sizeof(uint64_t));
+                uint64_t tail = p1 & 63;
+                cw[w1] &= tail ? (~0ull << tail) : 0ull;
+            }
+        }
+        uint32_t *oc = own_chunk[ci];
+        if (oc) {
+            uint64_t p0 = (x >> GEN_PAGE_SHIFT) & (GEN_PER_CHUNK - 1);
+            uint64_t count = (ce - x) >> GEN_PAGE_SHIFT;
+            memset(&oc[p0], 0, (size_t)count * sizeof(uint32_t));
+        }
+        x = ce;
+    }
+    plat_mutex_unlock(&gen_lock);
+}
 
 // Every write-watch query of the generation table (gen_lock held exclusively): calls, bytes and time since the last
 // mirror summary, all consumers together; the queries that found written pages (they also flush TLBs) apart.
@@ -1315,7 +1395,10 @@ static int ww_stamp(uint64_t lo, uint64_t hi, uint32_t g, int who) {
     for (uint64_t a = lo; a < hi;) {
         uint64_t n = ww_query(a, hi - a, who);
         if (n == UINT64_MAX) return 0;
-        for (uint64_t k = 0; k < n; k++) stamp_page(gen_pages[k], g);
+        for (uint64_t k = 0; k < n; k++) {
+            stamp_page(gen_pages[k], g);
+            cpu_written_set_page(gen_pages[k]);
+        }
         if (n < max) break;
         a = (gen_pages[n - 1] & ~0xfffull) + (1ull << GEN_PAGE_SHIFT);
     }
@@ -1368,6 +1451,7 @@ void vk_guest_written(uint64_t addr, uint64_t size) {
     uint64_t lo = addr & ~0xfffull, hi = (addr + size + 0xfff) & ~0xfffull;
     plat_mutex_lock(&gen_lock);
     stamp_range(lo, hi, ++gen_now);
+    cpu_written_set_range(lo, hi);
     plat_mutex_unlock(&gen_lock);
 }
 
@@ -1766,6 +1850,7 @@ static void written_batch(const VkGpuWrite *w, int n) {
             const PoolRec *r = e ? e->buf : NULL;
             if (!r || ms_get(r) != MS_ON || r->mbuf != w[i].buf || addr < r->import_lo || addr + size > r->import_hi) {
                 stamp_range(lo, hi, ++gen_now);   // as vk_guest_written
+                cpu_written_set_range(lo, hi);
                 g = 0, prev = NULL;
                 continue;
             }
@@ -1787,6 +1872,7 @@ static void written_batch(const VkGpuWrite *w, int n) {
                     rt_fatal("vk: out of memory for page generations");
                 uint32_t *o = &own_chunk[ci][(a >> GEN_PAGE_SHIFT) & (GEN_PER_CHUNK - 1)], prior = *s;
                 stamp_page(a, g);
+                if (!r->sfeed) cpu_written_set_page(a);
                 *o = prior <= mgen || prior == *o ? g : 0;
             }
         }
@@ -2097,6 +2183,7 @@ void vk_gpu_written_many(const VkGpuWrite *in, int n) {
             while (s < nseal && seal[s] < a) s++;
             if (s < nseal && seal[s] == a) continue;   // sealed: its stamp waits for the copy that opens it
             stamp_page(a, g);
+            cpu_written_set_page(a);
         }
     }
     plat_mutex_unlock(&gen_lock);
@@ -2138,6 +2225,7 @@ void vk_gpu_written_into(uint64_t addr, uint64_t size, VkBuffer buf) {
             rt_fatal("vk: out of memory for page generations");
         uint32_t *o = &own_chunk[ci][(a >> GEN_PAGE_SHIFT) & (GEN_PER_CHUNK - 1)], prior = *s;
         stamp_page(a, g);
+        if (!r->sfeed) cpu_written_set_page(a);
         *o = prior <= mgen || prior == *o ? g : 0;
     }
     plat_mutex_unlock(&gen_lock);
@@ -2493,6 +2581,7 @@ static void mirror_mode(int discrete, uint32_t vendor) {
                        "blocked lists, as before ce4178e, and the two answers compared (TOTK_STAGED_BLK_CHECK)");
         }
     }
+    mem_decommit_hook(mem_decommit_cb);
     rt_log("mem: mode %s (%s): %s", mode == 2 ? "verify" : mode ? "mirror" : "import", why,
            mode ? "pools used as buffers get a device-local mirror" : "every CPU-visible pool is imported host memory");
 }
@@ -3541,6 +3630,10 @@ static void own_settle_failed(PoolRec *r, const uint64_t *pg, int npg) {
         own_cut(r, cut, n);
     }
     plat_mutex_unlock(&own_lock);
+    if (total) {
+        for (int i = 0; i < n; i++)
+            cpu_written_mark_range(r->import_lo + cut[i].lo, cut[i].hi - cut[i].lo);
+    }
 }
 
 // memory.c probe_fault and prb_release: page (claimed, read-write) is GPU-owned. kernel: a host path that hands it to
@@ -3622,6 +3715,15 @@ static int staged_fetch(uint64_t page, int write, uint64_t rip, int kernel) {
         }
     if (!total) plat_inc64(&own_fempty);
     plat_mutex_unlock(&own_lock);
+    if (total) {
+        for (uint64_t p = w0; p < w1;) {
+            if (!(got >> ((p - w0) >> 12) & 1)) { p += 0x1000; continue; }
+            uint64_t q = p + 0x1000;
+            while (q < w1 && (got >> ((q - w0) >> 12) & 1)) q += 0x1000;
+            cpu_written_mark_range(p, q - p);
+            p = q;
+        }
+    }
     uint64_t ns = qpc() - t0;
     int guest = kern_cpu() != NULL;
     if (st_in_wb) plat_inc64(&own_cfetch);   // the completion thread inside staged_wb_done
@@ -4005,24 +4107,46 @@ static void staged_import(VkMemSpan *sp, int why) {
     sp->buffer = r->buf;
 }
 
-// The pages of staged pool r the write-watch ever saw written, as runs (offsets from import_lo) appended to *a, from
-// the page generations; returns their bytes. A first fill copies only these and zeroes the rest of the mirror. Guest
-// memory is write-watched from its reservation (memory.c watched, win32.c plat_mem_reserve), and mirror_create's
-// snapshot has just stamped every page written since the last query, so a page with no stamp has never been written
-// and still holds the zeros it was committed with. Reading such pages is what made a full copy slow: in the Hilltop
-// Layer the 450 MiB arena had little written, and the copy of all of it ran at 2 GiB/s (219 ms), a demand-zero or
-// lazy-heap commit fault per page. A page written after the scan is stamped after the mirror's mgen and copied in by
-// the next sync, as with the full copy.
+// The pages of staged pool r the CPU or host wrote since initial reserve or last decommit, as runs (offsets from
+// import_lo) appended to *a, from cpu_written_chunk; returns their bytes. A first fill copies only these and zeroes the
+// rest of the mirror. Guest memory is write-watched from its reservation (memory.c watched, win32.c plat_mem_reserve),
+// and mirror_create's snapshot has just marked every page written since the last query, while GPU-only writes into
+// staged mirrors leave cpu_written clear and decommit clears it when pages return to zero. Reading unwritten zero pages
+// is what made a full copy slow: in the Hilltop Layer the 450 MiB arena had little written, and the copy of all of it
+// ran at 2 GiB/s (219 ms), a demand-zero or lazy-heap commit fault per page. A page written after the scan is stamped
+// after the mirror's mgen and copied in by the next sync, as with the full copy.
 static uint64_t staged_runs(PoolRec *r, MRange **a, int *n, int *cap) {
     uint64_t copied = 0;
+    uint64_t lo = r->import_lo, hi = r->import_hi;
+    if (lo >= hi || lo >= RT_ADDRESS_LIMIT) return 0;
+    if (hi > RT_ADDRESS_LIMIT) hi = RT_ADDRESS_LIMIT;
     plat_mutex_lock_shared(&gen_lock);
-    for (uint64_t x = r->import_lo; x < r->import_hi;) {
-        uint64_t ce = ((x >> GEN_CHUNK_SHIFT) + 1) << GEN_CHUNK_SHIFT;
-        if (ce > r->import_hi) ce = r->import_hi;
-        const uint32_t *ch = gen_chunk[x >> GEN_CHUNK_SHIFT];
-        for (; ch && x < ce; x += 1ull << GEN_PAGE_SHIFT)
-            if (ch[(x >> GEN_PAGE_SHIFT) & (GEN_PER_CHUNK - 1)])
-                range_add(a, n, cap, r, x - r->import_lo, 1ull << GEN_PAGE_SHIFT), copied += 1ull << GEN_PAGE_SHIFT;
+    for (uint64_t x = lo; x < hi;) {
+        uint64_t ci = x >> GEN_CHUNK_SHIFT;
+        uint64_t ce = (ci + 1) << GEN_CHUNK_SHIFT;
+        if (ce > hi) ce = hi;
+        const uint64_t *cw = cpu_written_chunk[ci];
+        if (cw) {
+            uint64_t chunk_base = ci << GEN_CHUNK_SHIFT;
+            uint64_t p0 = (x >> GEN_PAGE_SHIFT) & (GEN_PER_CHUNK - 1);
+            uint64_t p1 = p0 + ((ce - x) >> GEN_PAGE_SHIFT);
+            if (p1 > p0) {
+                uint64_t w0 = p0 >> 6, w1 = (p1 - 1) >> 6;
+                for (uint64_t wi = w0; wi <= w1; wi++) {
+                    uint64_t w = cw[wi];
+                    if (!w) continue;
+                    if (wi == w0 && (p0 & 63)) w &= ~0ull << (p0 & 63);
+                    if (wi == w1 && (p1 & 63)) w &= (1ull << (p1 & 63)) - 1;
+                    while (w) {
+                        unsigned b = (unsigned)__builtin_ctzll(w);
+                        uint64_t page = chunk_base + (((wi << 6) + b) << GEN_PAGE_SHIFT);
+                        range_add(a, n, cap, r, page - lo, 1ull << GEN_PAGE_SHIFT);
+                        copied += 1ull << GEN_PAGE_SHIFT;
+                        w &= w - 1;
+                    }
+                }
+            }
+        }
         x = ce;
     }
     plat_mutex_unlock_shared(&gen_lock);
@@ -4512,7 +4636,17 @@ static int own_covered(const PoolRec *r, uint64_t pg, const CbPiece *pc, int n) 
 //   come with later fences), so the page's next fetch brings them in with its other owned bytes, and the bytes of the
 //   page that neither carries stay the guest's. A page found being settled is protected again once the claim ends if
 //   it is open then (mem_guard_own), as own_take does: the claim may have been a fault on an open page.
-static void staged_copy_back(PoolRec *r, const StJob *j, int i0, int i1) {
+static void cw_note_range(struct KeptRange **arr, int *n, int *cap, uint64_t lo, uint64_t hi) {
+    if (lo >= hi) return;
+    if (*n && (*arr)[*n - 1].hi == lo) {
+        (*arr)[*n - 1].hi = hi;
+        return;
+    }
+    if (*n == *cap) grow((void **)arr, cap, sizeof **arr);
+    (*arr)[(*n)++] = (struct KeptRange){lo, hi};
+}
+
+static void staged_copy_back(PoolRec *r, const StJob *j, int i0, int i1, struct KeptRange **cw, int *ncw, int *ccw) {
     static CbPiece *pc, *open;   // completion thread: the pieces by page; those for open pages
     static int cpc, cop;
     static StRange *keep;
@@ -4565,6 +4699,7 @@ static void staged_copy_back(PoolRec *r, const StJob *j, int i0, int i1) {
     }
     if (nkeep) own_merge(r, keep, nkeep);
     plat_mutex_unlock(&own_lock);
+    for (int i = 0; i < ngone; i++) cw_note_range(cw, ncw, ccw, base + gone[i].lo, base + gone[i].hi);
     for (int i = 0; i < nagain; i++) plat_add64(&own_protects, mem_guard_own(again[i]));
     plat_add64(&own_cb_opened, ngone), plat_add64(&own_cb_kept, nkeep);
     for (int x = 0; x < nop;) {   // runs of pieces whose pages touch: one thaw each (guarded pages are not among them)
@@ -4576,6 +4711,7 @@ static void staged_copy_back(PoolRec *r, const StJob *j, int i0, int i1) {
         }
         mem_thaw_keep(a, b - a);   // a frozen region is read-only; nothing to settle on these pages
         for (; x < y; x++) memcpy((void *)(uintptr_t)(base + open[x].off), j->map + open[x].roff, open[x].size);
+        cw_note_range(cw, ncw, ccw, a, b);
     }
 }
 
@@ -4586,6 +4722,8 @@ static void staged_copy_back(PoolRec *r, const StJob *j, int i0, int i1) {
 // as the sign that the submission's other writes are done, and those must not be readable stale once it is set (the
 // window above).
 static void staged_wb_done(void *arg) {
+    static struct KeptRange *cw;   // completion thread: guest ranges written here, marked in cpu_written after pool_lock
+    static int ccw;
     StJob *j = arg;
     uint64_t t_done = qpc();
     st_in_wb = 1;
@@ -4606,6 +4744,7 @@ static void staged_wb_done(void *arg) {
     }
     if (j->n) {
         uint64_t t0 = qpc();
+        int ncw = 0;
         vmaInvalidateAllocation(vk_ctx()->vma, j->alloc, 0, VK_WHOLE_SIZE);
         pool_lock_shared();   // the pools stay as they are while the bytes go in (vk_gpu_written does the same)
         for (int i = 0; i < j->n;) {
@@ -4614,7 +4753,7 @@ static void staged_wb_done(void *arg) {
             int live = e && e->buf == (void *)r && r->storage_serial == j->w[i].serial;
             int k = i;
             for (; k < j->n && j->w[k].r == r; k++) {}
-            if (live && staged_fault && ms_get(r) == MS_ON) staged_copy_back(r, j, i, k), live = 0;
+            if (live && staged_fault && ms_get(r) == MS_ON) staged_copy_back(r, j, i, k, &cw, &ncw, &ccw), live = 0;
             for (int x = i; live && x < k;) {   // TOTK_STAGED_WB=fence: runs of ranges whose pages touch, one thaw each
                 uint64_t base = r->import_lo, a = (base + j->w[x].off) & ~0xfffull;
                 uint64_t b = (base + j->w[x].off + j->w[x].size + 0xfff) & ~0xfffull;
@@ -4627,12 +4766,14 @@ static void staged_wb_done(void *arg) {
                 mem_thaw(a, b - a);   // a frozen region is read-only
                 for (int z = x; z < y; z++)
                     memcpy((void *)(uintptr_t)(base + j->w[z].off), j->map + j->w[z].roff, j->w[z].size);
+                cw_note_range(&cw, &ncw, &ccw, a, b);
                 // TOTK_STAGED_READ_PROBE: from here on the first CPU access to these pages is counted (memory.c).
                 for (; x < y; x++) mem_probe_protect(base + j->w[x].off, j->w[x].size);
             }
             i = k;
         }
         plat_mutex_unlock_shared(&pool_lock);
+        for (int i = 0; i < ncw; i++) cpu_written_mark_range(cw[i].lo, cw[i].hi - cw[i].lo);
         plat_add64(&st_wbcpu_ns, (int64_t)(qpc() - t0));
         plat_add64(&st_wbcpu_bytes, (int64_t)j->bytes);
     }
@@ -6365,7 +6506,11 @@ void vk_mem_shutdown(void) {
     __atomic_add_fetch(&pool_gen, 1, __ATOMIC_RELEASE);
     nphys = 0;
     plat_mutex_unlock(&pool_lock);
+    mem_decommit_hook(NULL);
     plat_mutex_lock(&gen_lock);
-    for (uint64_t i = 0; i < GEN_CHUNKS; i++) free(gen_chunk[i]), gen_chunk[i] = NULL;
+    for (uint64_t i = 0; i < GEN_CHUNKS; i++) {
+        free(gen_chunk[i]), gen_chunk[i] = NULL;
+        free(cpu_written_chunk[i]), cpu_written_chunk[i] = NULL;
+    }
     plat_mutex_unlock(&gen_lock);
 }
