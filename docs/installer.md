@@ -494,7 +494,8 @@ bin/                  totk_xlate, hactool, ninja, libSDL3.so.0
   checks every ELF file in the folder against that floor (`check_glibc`), and the setup's check step stops with one
   message on an older system.
 - The setup's temp folder (`--temp` changes it) is `.setup-temp` inside the install folder for TotK. For Bananza it is
-  `.dkb-setup` beside the install folder (AppImage), or `build/install-temp` in a source package. The AppImage is mounted
+  `.dkb-setup` inside the install folder (AppImage, #402; a `--temp` inside the install folder is still refused), or
+  `build/install-temp` in a source package. The AppImage is mounted
   read-only, and a Steam Deck's `/home` is often too full for the generated C while the game goes to the SD card.
 - The game keeps Mesa's shader cache in `mesa-cache` beside `totk` unless `MESA_SHADER_CACHE_DIR` is set, for the
   same reason: RADV fills its default folder in `~/.cache` up to 1 GB. The game raises that cap to 10 GiB
