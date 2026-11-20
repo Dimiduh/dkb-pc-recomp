@@ -48,6 +48,9 @@ typedef struct {
 } InputPadSelection;
 uint32_t input_pad_choose(InputPadSelection *s, const InputPadDevice *devices, int count,
                           const char *preferred, uint32_t current);
+// Player 2's pad (coop): the one it already has while that is listed and is not player 1's, else the first listed device
+// that is not player 1's; 0 for none. Devices are told apart by instance id only: identical pads share name and GUID.
+uint32_t input_pad2_choose(const InputPadDevice *devices, int count, uint32_t player1, uint32_t current2);
 // The menu calls this after an explicit choice, including reselecting the saved preference after an auto takeover.
 void input_pad_selection_changed(void);
 int input_pad_automatic(void);   // read-only UI status: automatic takeover/fallback is currently in effect
