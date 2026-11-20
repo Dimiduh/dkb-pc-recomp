@@ -101,6 +101,9 @@ int input_rumble(uint16_t low, uint16_t high, uint32_t ms);
 // HD rumble for a Switch Pro Controller or Joy-Con (TOTK_RUMBLE_HD=auto): v[side][] = amplitude and frequency in Hz of the
 // low band, then of the high band, sent as one SDL_SendGamepadEffect packet; ms == 0 sends neutral. While it applies,
 // input_rumble leaves that pad alone. 1 if the pad took it; any other pad returns 0. Callable from any thread.
+// Player 2's gamepad (pad2): the two-motor path, values already scaled by the caller (no HD packets, no triggers).
+// 1 if it took it; 0 without a player 2 gamepad. Callable from any thread.
+int input_rumble2(uint16_t low, uint16_t high, uint32_t ms);
 int input_rumble_hd(const float v[2][4], uint32_t ms);
 // Every vibration value the game sets, both sides as for input_rumble_hd (curve and strength applied to the
 // amplitudes, silent sides neutral), for a pad that plays them as they come: a Switch 2 controller over Bluetooth

@@ -68,7 +68,8 @@ With two gamepads connected, the second one is player 2 (`runtime/ov_input.c`, n
 pause menu, Co-op mode > Share controllers starts the game's controller check, which the host answers with both
 players at once, and player 2 plays Pauline. The first gamepad stays player 1, and a gamepad plugged in while one is
 connected joins as player 2 instead of taking player 1 over. Player 2 uses the gamepad table of its own layout and the
-`bind_` lines, and has no rumble or motion of its own. `coop = 0` (`TOTK_COOP=0`) keeps one controller. Without a
+`bind_` lines, and rumbles its own gamepad (the game's vibration for npad No.2, including in single-player, where the game reads
+it too); it has no motion of its own. `coop = 0` (`TOTK_COOP=0`) keeps one controller. Without a
 gamepad on player 1 (keyboard only) there is no player 2. GameShare is not supported.
 
 ## Xbox button prompts

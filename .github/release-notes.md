@@ -5,7 +5,7 @@ DKB Recomp 0.5.1: a static recompilation of *Donkey Kong Bananza* (Switch 2) to 
 ## What is new since 0.5.0
 
 - **NVIDIA shader cache on Windows.** 0.5.0 pointed NVIDIA's shader disk cache at an `nv-cache` folder beside `dkb.exe` but never created that folder. The Windows driver reads that setting and kept no disk cache, so every start compiled the compute pipelines again in the background (about 5 minutes on a GTX 1650, with the game near 30 fps meanwhile; 0.4.2 took 0.2 s). 0.5.1 creates the folder. The first start fills it, and later starts are fast again (here 12.5 s to 0.13 s). Thanks @supermahdi-enjoyer for the four logs that showed it (#437).
-- **Two identical gamepads.** Player 2's pad is picked by its instance id, and the log names both players' ids, to sort out the co-op mix-up with two pads that share a name and id (#445, thanks @mrflanderson for the two-pad test).
+- **Player 2's rumble.** With two gamepads the game reads both, also in single-player, and sends the rumble for the pad you play on to that pad's own slot. Player 2's slot was ignored, so the rumble came out of the other pad. Player 2's rumble now plays on its own gamepad (two motors), and the log names both pads' ids (#445, thanks @mrflanderson for the two-pad test).
 
 ## Also in 0.5.0 (since 0.4.2)
 
@@ -60,7 +60,7 @@ No pull requests since 0.5.0. Thank you to everyone who sent code for 0.5.0; eac
 
 ## Issues fixed or answered
 
-#437 (NVIDIA shader cache, 0.5.1, @supermahdi-enjoyer) and #445 (two identical gamepads, logging only so far, @mrflanderson). In 0.5.0:
+#437 (NVIDIA shader cache, 0.5.1, @supermahdi-enjoyer) and #445 (two gamepads, rumble on the wrong pad, @mrflanderson). In 0.5.0:
 
 #428 (banana pickup crash, @prayudigames93-ctrl, with dumps and a save), #443 (pool guard crash, @Felitendo, with the disassembly), #204 (@MedoShinwa), #411, #421 and #441 (EmeraldRush crash with `realtime`, @NoireOvO, @crni20zd, @Nikoroq), #240 (local co-op, @keerttttt), #180 (Thai, @RavenChz, who also tested the mod route), #249 (16:10, @dextert007), #305 (RomFS in place, @drboulakdemhadj-sys), #416 (DualSense prompts, @dancaiman), #440 (prompt swap, @Nikoroq), #438 (@kline1110) and #433 (@sharicov) (setup errors), #402 (launcher and packaging, @wrothgaril), #214 (text at 1440p, @Felitendo), #141 and #418 (AMD frame rate, @GlebShekovtsov, @AcousticBlu3, with runs from @akmuzyka and @Ghos796), #140 (launcher, @Koaxz). Some of these stay open until the reporter retests.
 
