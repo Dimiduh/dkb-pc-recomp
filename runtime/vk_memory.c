@@ -5647,7 +5647,13 @@ int vk_mem_mirror_end(VkCommandBuffer cb, uint64_t fence) {
     }
     if (__atomic_load_n(&wb_locals, __ATOMIC_ACQUIRE)) wb_locals_take(), kept_take();
     perf_ph_end(PERF_PH_WB_LISTS, ph);
-    if (nwbl || nstw) {   // staged mirrors' (stw) write back through the job's readback buffer (staged_wb_record)
+    if (nstw && staged_fault) {   // most stay in the mirror; pages the CPU read remain in stw for the fence copy-back
+        uint64_t ps = perf_ph_begin_cpu();
+        staged_split_own();
+        perf_ph_end(PERF_PH_ST_SPLIT, ps);
+    }
+    int need_ref = fetch_test && st_cur && st_cur->no;
+    if (nwbl || nstw || need_ref) {   // staged mirrors' (stw) write back through the job's readback buffer (staged_wb_record)
         VkPipelineStageFlags2 stage = VK_PIPELINE_STAGE_2_COPY_BIT;
         VkAccessFlags2 reads = VK_ACCESS_2_TRANSFER_READ_BIT, writes = VK_ACCESS_2_TRANSFER_WRITE_BIT;
         if (mirror_sparse) {
@@ -5660,11 +5666,12 @@ int vk_mem_mirror_end(VkCommandBuffer cb, uint64_t fence) {
         for (int i = 0; i < nstw; i++) stw[i].r->wb_sub = msub;
         mrep.wb_ranges += (uint64_t)(nwbl + nstw);
         if (nwbl) rec += copy_ranges(cb, wbl, nwbl, 0, &mrep.wb_bytes, &mrep.wb_copies, fence);
-        uint64_t ps = perf_ph_begin_cpu();
-        if (nstw && staged_fault) staged_split_own();   // most stay in the mirror; pages the CPU read go back
-        if (fetch_test && st_cur && st_cur->no) rec += staged_ref_record(cb);   // TOTK_STAGED_FETCH_TEST
-        if (nstw) rec += staged_wb_record(cb);
-        perf_ph_end(PERF_PH_ST_SPLIT, ps);
+        if (need_ref || nstw) {
+            uint64_t ps = perf_ph_begin_cpu();
+            if (need_ref) rec += staged_ref_record(cb);   // TOTK_STAGED_FETCH_TEST
+            if (nstw) rec += staged_wb_record(cb);
+            perf_ph_end(PERF_PH_ST_SPLIT, ps);
+        }
         rec += 2;
         mbarrier(cb, stage, writes,
                  VK_PIPELINE_STAGE_2_HOST_BIT | VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
