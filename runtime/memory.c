@@ -1086,12 +1086,12 @@ static void cl_thread(void *arg) {
         plat_mutex_unlock(&CL.lock);
         uint64_t t0 = plat_now_ns();
         for (uint64_t x = a; x < a + n; x += CL_SLICE) {
-            plat_mutex_lock(&lock);
+            plat_mutex_lock_shared(&lock);
             int ok = touch_range(x, a + n - x < CL_SLICE ? a + n - x : CL_SLICE, 0);
-            plat_mutex_unlock(&lock);
-            // `lock` is not fair, and this loop would take it again at once: a guest thread waiting for it in SetHeapSize,
-            // MapMemory or QueryMemory could be passed over for a whole range (about 225 slices for the terrain pool).
-            // Giving up the time slice lets a waiter in after one slice.
+            plat_mutex_unlock_shared(&lock);
+            // `lock` is not fair, and this loop would take it again at once: a guest thread waiting exclusively for it
+            // in SetHeapSize or MapMemory could be passed over for a whole range (about 225 slices for the terrain
+            // pool). Giving up the time slice lets an exclusive waiter in after one slice.
             plat_yield();
             if (!ok) {
                 if (plat_inc64(&cl_failed) <= 4)
