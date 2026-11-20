@@ -1,10 +1,13 @@
-DKB Recomp 0.5.0: a static recompilation of *Donkey Kong Bananza* (Switch 2) to a native Windows exe with a Vulkan renderer. It is still experimental (0.x). This release adds a one-file Windows launcher with one-click updates, performance presets for weak and strong PCs, local co-op, Thai, 16:10 screens, and crash fixes from player reports.
+DKB Recomp 0.5.1: a static recompilation of *Donkey Kong Bananza* (Switch 2) to a native Windows exe with a Vulkan renderer. It is still experimental (0.x). A fix release for 0.5.0: on Windows with an NVIDIA GPU, 0.5.0 compiled its compute pipelines again at every start, which held the game near 30 fps for the first minutes.
 
 **The packages hold no game data, and no release ever will.** You build the game on your own PC from your own dump of **1.0.0 or the 3.2.0 update**, given as a `.nup` or `.nx` file or as ExeFS and RomFS folders. Other updates are not supported.
 
-Not run in play by us: co-op with two real gamepads (tested with a simulated second pad), the FSR 4 download and Anti-Lag 2 on AMD hardware, the Windows RecompLauncher profile, and play on macOS.
+## What is new since 0.5.0
 
-## What is new since 0.4.2
+- **NVIDIA shader cache on Windows.** 0.5.0 pointed NVIDIA's shader disk cache at an `nv-cache` folder beside `dkb.exe` but never created that folder. The Windows driver reads that setting and kept no disk cache, so every start compiled the compute pipelines again in the background (about 5 minutes on a GTX 1650, with the game near 30 fps meanwhile; 0.4.2 took 0.2 s). 0.5.1 creates the folder. The first start fills it, and later starts are fast again (here 12.5 s to 0.13 s). Thanks @supermahdi-enjoyer for the four logs that showed it (#437).
+- **Two identical gamepads.** Player 2's pad is picked by its instance id, and the log names both players' ids, to sort out the co-op mix-up with two pads that share a name and id (#445, thanks @mrflanderson for the two-pad test).
+
+## Also in 0.5.0 (since 0.4.2)
 
 - **Windows launcher.** `DKB-Launcher.exe` is one small file. It downloads the build tools from the latest release and checks their size and SHA-256, then builds the game from your dump and shows Play. At each start it looks for a new release (a tick box turns that off), shows the notes and updates in place with one click. An update downloads only the new tools zip, rebuilds only the steps whose inputs changed, and keeps your saves (`profile/`) and `dkb.ini` (#420, #140, #402). The setup zip still works as before.
 - **Performance presets.** `preset = 1..5` (Minimum to Ultra) or `recommended`, which picks a level from the GPU's video memory, the RAM and the processor count at start. A preset only fills in defaults, so any option you set yourself still wins, and the F1 menu has a Preset row. docs/requirements.md lists the resolution and frame rate to expect at each level.
@@ -39,9 +42,9 @@ Not run in play by us: co-op with two real gamepads (tested with a simulated sec
 - **macOS.** The install check finds the Vulkan loader and the headers on Apple silicon (#444). `DKB_HEADLESS=1` runs the game with no window, for captures and scripted runs. CI now compiles the whole runtime on macOS at every push.
 - **Picture.** Text and the HUD are sharp at 1440p and above with `scene_res = full`. Without it, the HUD is drawn at two thirds of the screen size and stretched (#214).
 
-## Pull requests in this release
+## Pull requests in 0.5.0
 
-Thank you to everyone who sent code. Each one below is new since 0.4.2:
+No pull requests since 0.5.0. Thank you to everyone who sent code for 0.5.0; each one below is new since 0.4.2:
 
 - #419 Keep the Bananza installer tests independent of the test machine's free disk space and symlink rights (@wrothgaril)
 - #420 DKB-Launcher.exe: a small Windows launcher that installs the build tools, checks for releases and updates in place with one click (@wrothgaril)
@@ -55,13 +58,15 @@ Thank you to everyone who sent code. Each one below is new since 0.4.2:
 - #442 The staged mirror on by default on Windows with an NVIDIA GPU (@wrothgaril)
 - #444 macOS fixes: the install check, a headless test mode, and the new upscaler hashes (@anthonyyya)
 
-## Issues fixed or answered by this release
+## Issues fixed or answered
+
+#437 (NVIDIA shader cache, 0.5.1, @supermahdi-enjoyer) and #445 (two identical gamepads, logging only so far, @mrflanderson). In 0.5.0:
 
 #428 (banana pickup crash, @prayudigames93-ctrl, with dumps and a save), #443 (pool guard crash, @Felitendo, with the disassembly), #204 (@MedoShinwa), #411, #421 and #441 (EmeraldRush crash with `realtime`, @NoireOvO, @crni20zd, @Nikoroq), #240 (local co-op, @keerttttt), #180 (Thai, @RavenChz, who also tested the mod route), #249 (16:10, @dextert007), #305 (RomFS in place, @drboulakdemhadj-sys), #416 (DualSense prompts, @dancaiman), #440 (prompt swap, @Nikoroq), #438 (@kline1110) and #433 (@sharicov) (setup errors), #402 (launcher and packaging, @wrothgaril), #214 (text at 1440p, @Felitendo), #141 and #418 (AMD frame rate, @GlebShekovtsov, @AcousticBlu3, with runs from @akmuzyka and @Ghos796), #140 (launcher, @Koaxz). Some of these stay open until the reporter retests.
 
 ## Thanks
 
-Pull requests since 0.4.2: wrothgaril, GlebShekovtsov, cybersecurityhandle, anthonyyya. Issues, logs, saves and recordings: everyone named above. Thank you.
+Pull requests in 0.5.0: wrothgaril, GlebShekovtsov, cybersecurityhandle, anthonyyya. Issues, logs, saves and recordings: everyone named above. Thank you.
 
 ## Download
 
@@ -93,6 +98,6 @@ Pull requests since 0.4.2: wrothgaril, GlebShekovtsov, cybersecurityhandle, anth
 
 ## Reporting a bug
 
-Open an issue with the log (`dkb.log`), the build line at its top (`dkb 0.5.0+<commit>`), your GPU and driver, and what you did before it failed. **Never share generated files, keys or screenshots that show game content.**
+Open an issue with the log (`dkb.log`), the build line at its top (`dkb 0.5.1+<commit>`), your GPU and driver, and what you did before it failed. **Never share generated files, keys or screenshots that show game content.**
 
 Roadmap: #10.
