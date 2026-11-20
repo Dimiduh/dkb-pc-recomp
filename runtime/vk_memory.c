@@ -3433,11 +3433,24 @@ static void staged_split_own(void) {
         PoolRec *r = stw[i].r;
         uint64_t lim = r->import_hi - r->import_lo, a = stw[i].off, b = a + stw[i].size;
         if (b > lim) b = lim;
+        if (a >= b) continue;
+        uint8_t *cr = __atomic_load_n(&r->cpu_read, __ATOMIC_ACQUIRE);
+        if (!cr) {
+            StRange *l = j->no ? &j->o[j->no - 1] : NULL;
+            if (l && l->r == r && l->off <= a && l->off + l->size >= a) {
+                if (b > l->off + l->size) l->size = b - l->off;
+            } else {
+                if (j->no == j->co) grow((void **)&j->o, &j->co, sizeof *j->o);
+                j->o[j->no++] = (StRange){r, r->lo, r->storage_serial, a, b - a, 0};
+            }
+            mrep.st_sp_pieces++;
+            continue;
+        }
         for (uint64_t x = a; x < b;) {
             uint64_t e = (x & ~0xfffull) + 0x1000;
             if (e > b) e = b;
             StRange *l = j->no ? &j->o[j->no - 1] : NULL;
-            if (r->cpu_read && __atomic_load_n(&r->cpu_read[x >> 12], __ATOMIC_RELAXED)) {
+            if (__atomic_load_n(&cr[x >> 12], __ATOMIC_RELAXED)) {
                 range_add(&fb, &nfb, &cfb, r, x, e - x);
             } else if (l && l->r == r && l->off <= x && l->off + l->size >= x) {
                 if (e > l->off + l->size) l->size = e - l->off;
@@ -3614,7 +3627,16 @@ static void own_settle_failed(PoolRec *r, const uint64_t *pg, int npg) {
             cut[n] = (struct KeptRange){a, b}, reg[n] = (VkBufferCopy){a, total, b - a}, n++;
             total += b - a, bytes += b - a;
         }
-        if (!__atomic_exchange_n(&r->cpu_read[lo >> 12], 1, __ATOMIC_RELAXED)) plat_inc64(&own_switched);
+        uint8_t *cr = r->cpu_read;
+        if (!cr) {
+            cr = calloc((size_t)((r->import_hi - r->import_lo) >> 12) + 1, 1);
+            if (!cr) rt_fatal("vk: out of memory");
+            cr[lo >> 12] = 1;
+            __atomic_store_n(&r->cpu_read, cr, __ATOMIC_RELEASE);
+            plat_inc64(&own_switched);
+        } else if (!__atomic_exchange_n(&cr[lo >> 12], 1, __ATOMIC_RELAXED)) {
+            plat_inc64(&own_switched);
+        }
         if (plat_inc32(&logged) <= 16)
             rt_log("mem: staged pool %#llx: page %#llx could not be protected for its GPU-owned bytes; %llu bytes fetched "
                    "at once and the page goes back to the fence copy-back", (unsigned long long)r->lo,
@@ -3704,12 +3726,25 @@ static int staged_fetch(uint64_t page, int write, uint64_t rip, int kernel) {
     // the page's write-watch bit. Left so: the reset that would avoid it cannot tell that copy from a write by another
     // thread to the page, which is read-write while claimed, and a missed write would leave the mirror stale; the cost
     // is one page upload per fetched page, and fetches are rare (none on the Hilltop route without the exerciser).
+    if (got) {
+        uint8_t *cr = r->cpu_read;
+        if (!cr) {
+            cr = calloc((size_t)((r->import_hi - r->import_lo) >> 12) + 1, 1);
+            if (!cr) rt_fatal("vk: out of memory");
+            for (uint64_t p = w0; p < w1; p += 0x1000)
+                if ((mine & got) >> ((p - w0) >> 12) & 1)
+                    cr[(p - r->import_lo) >> 12] = 1, plat_inc64(&own_switched);
+            __atomic_store_n(&r->cpu_read, cr, __ATOMIC_RELEASE);
+        } else {
+            for (uint64_t p = w0; p < w1; p += 0x1000)
+                if (((mine & got) >> ((p - w0) >> 12) & 1) &&
+                    !__atomic_exchange_n(&cr[(p - r->import_lo) >> 12], 1, __ATOMIC_RELAXED))
+                    plat_inc64(&own_switched);
+        }
+    }
     int pages = 0;
     for (uint64_t p = w0; p < w1; p += 0x1000)
         if (mine >> ((p - w0) >> 12) & 1) {
-            if ((got >> ((p - w0) >> 12) & 1) && !__atomic_exchange_n(&r->cpu_read[(p - r->import_lo) >> 12], 1,
-                                                                       __ATOMIC_RELAXED))
-                plat_inc64(&own_switched);
             mem_guard_clear(p);
             pages++;
         }
@@ -3815,6 +3850,7 @@ static void own_log(uint64_t frame, double f) {
     // summary line (every 60 frames with TOTK_TRACE=perf).
     for (int i = 0; i < nst_pools; i++) {
         const PoolRec *r = st_pools[i];
+        if (!r->cpu_read) continue;
         for (uint64_t p = 0; p <= (r->import_hi - r->import_lo) >> 12; p++) cpu_read += r->cpu_read[p];
     }
     plat_mutex_unlock(&own_lock);
@@ -3962,7 +3998,8 @@ static void ft_frame(uint64_t frame) {
     if (frame % 600 == 0) {   // the fetched pages become owned again at their next GPU write
         plat_mutex_lock(&own_lock);
         for (int i = 0; i < nst_pools; i++)
-            memset(st_pools[i]->cpu_read, 0, (size_t)((st_pools[i]->import_hi - st_pools[i]->import_lo) >> 12) + 1);
+            if (st_pools[i]->cpu_read)
+                memset(st_pools[i]->cpu_read, 0, (size_t)((st_pools[i]->import_hi - st_pools[i]->import_lo) >> 12) + 1);
         plat_mutex_unlock(&own_lock);
     }
 }
@@ -4888,9 +4925,7 @@ static void mirror_create(PoolRec *r, BigMirror *fill) {
     plat_mutex_unlock(&pool_lock);
     r->acc_sub = msub, r->sub_hist = 1;
     r->sfeed = (uint8_t)staged;
-    if (staged && staged_fault) {   // staged_fetch finds the pool by address
-        r->cpu_read = calloc((size_t)(n >> 12) + 1, 1);
-        if (!r->cpu_read) rt_fatal("vk: out of memory");
+    if (staged && staged_fault) {   // staged_fetch finds the pool by address; r->cpu_read is allocated lazily on first fetch
         if (fetch_test) {
             r->t_rec = calloc((size_t)(n >> 12) + 1, sizeof *r->t_rec);
             r->t_ref = calloc((size_t)(n >> 12) + 1, sizeof *r->t_ref);
