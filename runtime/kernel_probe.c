@@ -421,15 +421,15 @@ static void test_cores(Cpu *c) {
     int now, held_max;
     kern_core_stats(&now, &held_max);
     uint32_t cpus = plat_cpu_usable();
-    int gate = !cfg_bool("TOTK_FREE_CORES");   // the kernel's own switch
+    int gate = !cfg_bool("DKB_FREE_CORES");   // the kernel's own switch
     int ok = g_run_max <= 3 && held_max <= 3 && !g_core_clash && (cpus < 4 || g_run_max == 3);
     printf("virtual cores: %d threads x %d runs on %u host CPUs: at most %d running guest code at once, at most %d "
            "core holders (kernel count), %d core-number clashes: %s\n", CORE_WORKERS, CORE_RUNS, cpus, g_run_max,
-           held_max, g_core_clash, !gate ? "not checked (TOTK_FREE_CORES is set)" : ok ? "ok" : "FAIL");
+           held_max, g_core_clash, !gate ? "not checked (DKB_FREE_CORES is set)" : ok ? "ok" : "FAIL");
     CHECK(ok || !gate, "virtual cores");
 }
 
-// ---- directed core hand-off (kernel.c, TOTK_SCHED_HANDOFF): threads on core 3 alone. A holder L (priority 50) hands
+// ---- directed core hand-off (kernel.c, DKB_SCHED_HANDOFF): threads on core 3 alone. A holder L (priority 50) hands
 // a mutex to a waiter H (40). Case 1: L releases it with ArbitrateUnlock, then runs host code without an SVC for
 // 40 ms, where nothing stops it (the asynchronous preemption only interrupts lifted code); with the hand-off H gets the
 // core as the SVC returns, without it at L's next SVC, 40 ms later. Case 2: L releases it inside
@@ -512,7 +512,7 @@ static void test_handoff(Cpu *c) {
     int ok = d1 >= 0 && d2 >= 0 && (!on || (d1 < 15 && d2 < 15));
     printf("core hand-off (%s): a better waiter got a released mutex's core after %.3f ms (ArbitrateUnlock, holder "
            "busy 40 ms after it) and %.3f ms (WaitProcessWideKeyAtomic, a worse thread queued for the core): %s\n",
-           on ? "TOTK_SCHED_HANDOFF on, want under 15 ms" : "off, about 40 ms expected", d1, d2,
+           on ? "DKB_SCHED_HANDOFF on, want under 15 ms" : "off, about 40 ms expected", d1, d2,
            !ok ? "FAIL" : on ? "ok" : "ok (not checked)");
     CHECK(ok, "core hand-off");
 }
