@@ -1395,7 +1395,7 @@ static void descriptor_state(VkExec *ex);
 // lookup) still holds at global generation gen: nothing at all changed since, or not its slot (the token, read only when
 // the global generation moved, about every 16 draws). A token hit moves *egen to gen.
 static int slot_still(const VkExec *ex, uint32_t *egen, uint64_t etok, uint64_t h, uint32_t gen) {
-    if (!etok) return 0;
+    if (!etok && vk_texture_view_active()) return 0;
     if (*egen == gen) return 1;
     uint64_t t = token_of(ex, h);
     if (!t || t != etok) return 0;
@@ -2276,7 +2276,7 @@ static void tex_info_lookup(VkExec *ex, const GfxShaderRes *r, uint64_t h, int s
     uint64_t tok = token_of(ex, h);   // before the lookup
     if (!*locked) vk_texture_lock(), *locked = 1;
     tex_info_full(ex, r, h, storage, separate, out, &image);
-    if (tok)
+    if (tok || !vk_texture_view_active())
         *m = (typeof(*m)){.context = dc->descriptor_serial, .h = h, .tok = tok, .gen = gen, .epoch = ep, .sgen = sg, .type = r->type,
                           .separate = (uint8_t)separate, .valid = 1, .image = image, .out = *out};
     else

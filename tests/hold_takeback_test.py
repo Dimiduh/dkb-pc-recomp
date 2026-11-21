@@ -1,8 +1,10 @@
-"""Unit tests for runtime/vk_texture.c tex_same_desc, takeback_free, and epoch-view visibility (TOTK_HOLD_TAKEBACK).
+"""Unit tests for runtime/vk_texture.c tex_same_desc, takeback_free, epoch-view visibility, entry_pick_alias,
+and runtime/vk_exec_draw.c token-0 memo gating (TOTK_HOLD_TAKEBACK).
 
-Extracts agen_idx, vk_texture_takebacks, vk_texture_view, tex_is_released, tb_bucket_stale,
-tex_same_desc, takeback_free, and vk_texture_slot_token_again verbatim from runtime/vk_texture.c
-and compiles a C fixture at -O0 and -O2 with -Wall -Wextra -Werror (no Vulkan loader or GPU).
+Extracts agen_idx, vk_texture_takebacks, vk_texture_view, vk_texture_view_active, tex_is_released,
+tb_bucket_stale, tex_same_desc, takeback_free, entry_pick_alias, and vk_texture_slot_token_again verbatim
+from runtime/vk_texture.c, plus slot_still and tex_info_lookup verbatim from runtime/vk_exec_draw.c, and
+compiles a C fixture at -O0 and -O2 with -Wall -Wextra -Werror (no Vulkan loader or GPU).
 """
 import argparse
 from pathlib import Path
@@ -25,17 +27,26 @@ def extract_function(text, signature):
 
 def build_source():
     tex_src = (ROOT / 'runtime' / 'vk_texture.c').read_text(encoding='utf-8')
-    sigs = (
+    draw_src = (ROOT / 'runtime' / 'vk_exec_draw.c').read_text(encoding='utf-8')
+    tex_sigs = (
         'static uint32_t agen_idx(',
         'uint64_t vk_texture_takebacks(',
         'void vk_texture_view(',
+        'int vk_texture_view_active(',
         'static inline int tex_is_released(',
         'static inline int tb_bucket_stale(',
+        'static int same_but_swizzle(',
         'static int tex_same_desc(',
         'static int takeback_free(',
+        'static Tex *entry_pick_alias(',
         'uint64_t vk_texture_slot_token_again(',
     )
-    extracted = [extract_function(tex_src, s) for s in sigs]
+    draw_sigs = (
+        'static int slot_still(',
+        'static void tex_info_lookup(',
+    )
+    extracted = [extract_function(tex_src, s) for s in tex_sigs]
+    extracted_draw = [extract_function(draw_src, s) for s in draw_sigs]
 
     prelude = r'''#include <stdint.h>
 #include <stdio.h>
@@ -58,10 +69,13 @@ typedef struct {
 
 typedef struct Tex {
     VkTexImage pub;
+    TexKey key;
     tex_t t;
     int released;
     uint64_t live_seq;
     struct Tex *next_at;
+    int mock_gpu_content;
+    int mock_destroyed;
 } Tex;
 
 static uint32_t agen[AGEN_N];
@@ -78,10 +92,72 @@ int rt_knob(const char *name, const char *def) {
     return mock_knob;
 }
 int rt_ab(void) { return mock_ab; }
+void rt_fatal(const char *fmt, ...) { (void)fmt; abort(); }
 
 static uint64_t n_tb_not_target, n_tb_desc, n_tb_upload;
 static int takeback_mode = -1;
 static _Thread_local int target_lookup;
+
+// Mocks for entry_pick_alias (by_addr hash map, destroy_tex, alias helpers).
+static nvn_hmap by_addr;
+static int tex_frozen;
+static int tex_alias = 1;
+static int mock_destroy_count;
+
+static void destroy_tex(Tex *e) {
+    e->mock_destroyed++;
+    mock_destroy_count++;
+}
+static int alias_compatible(const Tex *e, const Tex *p) {
+    (void)e; (void)p;
+    return 1;
+}
+static int alias_has_gpu_content(const Tex *p) { return p->mock_gpu_content; }
+
+// Minimal VkExec / DrawCtx mocks for verbatim slot_still + tex_info_lookup extraction.
+typedef struct VkExec {
+    dpool_ref tex_pool;
+    int nfbl;
+} VkExec;
+
+typedef struct {
+    uint32_t context, gen, epoch, sgen;
+    uint64_t h, tok;
+    uint16_t type;
+    uint8_t separate, valid;
+    VkImage image;
+    VkDescriptorImageInfo out;
+} MockTdEntry;
+
+typedef struct DrawCtx {
+    uint32_t descriptor_serial;
+    MockTdEntry TD[8192];
+} DrawCtx;
+
+static DrawCtx mock_dc = {.descriptor_serial = 1};
+#define DC_OF(ex) (&mock_dc)
+
+static uint64_t mock_token_val;
+static int mock_full_calls, mock_lock_calls, mock_by_id_calls;
+
+static int td_mode(void) { return 1; }
+static int td_hash_on(void) { return 1; }
+static int in_fbl(const VkExec *ex, VkImage img) { (void)ex; (void)img; return 0; }
+static uint64_t token_of(const VkExec *ex, uint64_t h) { (void)ex; (void)h; return mock_token_val; }
+void vk_texture_lock(void) { mock_lock_calls++; }
+const VkTexImage *vk_texture_by_id_locked(const dpool_ref *pool, int id, view_t *view, int *has_view) {
+    (void)pool; (void)id; (void)view; (void)has_view;
+    mock_by_id_calls++;
+    return NULL;
+}
+static void tex_info_full(VkExec *ex, const GfxShaderRes *r, uint64_t h, int storage, int separate,
+                          VkDescriptorImageInfo *out, VkImage *image) {
+    (void)ex; (void)r; (void)h; (void)storage; (void)separate;
+    mock_full_calls++;
+    *image = (VkImage)(uintptr_t)0x1234;
+    *out = (VkDescriptorImageInfo){.sampler = (VkSampler)(uintptr_t)11, .imageView = (VkImageView)(uintptr_t)22,
+                                   .imageLayout = VK_IMAGE_LAYOUT_GENERAL};
+}
 '''
 
     cases = r'''
@@ -263,16 +339,135 @@ int main(void) {
 
     // Newer pass B (started after takeback, view_upto == 6): sees e as live and bucket not stale.
     vk_texture_view(pass_b_upto);
+    CHECK(vk_texture_view_active() == 1);
     CHECK(tex_is_released(&e) == 0);
     CHECK(tb_bucket_stale(aidx) == 0);
     CHECK(vk_texture_slot_token_again(&st_hit) == ((uint64_t)42 << 32 | 7));
+    vk_texture_view(0);
+    CHECK(vk_texture_view_active() == 0);
+
+    // 5. entry_pick_alias under view_upto: walk-live texture hidden from view_upto must be skipped as alias source
+    //    AND NEVER destroyed; genuinely released textures are destroyed iff !tex_frozen; visible live ones alias.
+    nvn_hm_init(&by_addr, sizeof(uint64_t));
+    Tex target = {0}, p_hidden = {0}, p_rel = {0}, p_vis = {0};
+    TexKey tk = {.addr = 0x200000000ull};
+    tk.d.format = NVN_FORMAT_RGBA8;
+    tk.d.width = 512;
+    tk.d.height = 512;
+    target.key = tk;
+
+    // Case 5a: only a walk-live entry hidden by view_upto (released == 0, live_seq == 5 >= view_upto == 5).
+    p_hidden.key = tk;
+    p_hidden.released = 0;
+    p_hidden.live_seq = 5;
+    p_hidden.mock_gpu_content = 1;
+    p_hidden.next_at = NULL;
+    nvn_hm_put(&by_addr, &tk.addr, &p_hidden);
+    tex_frozen = 0;
+    tex_alias = 1;
+    mock_destroy_count = 0;
+    vk_texture_view(5);
+    int alias = -1;
+    Tex *src = entry_pick_alias(&target, &tk, &alias);
+    CHECK(alias == 0 && src == NULL);
+    CHECK(p_hidden.mock_destroyed == 0 && mock_destroy_count == 0);
+
+    // Same entry under view_upto == 0 (walk) or view_upto == 6 (newer pass) IS visible and picked as alias source.
+    vk_texture_view(0);
+    src = entry_pick_alias(&target, &tk, &alias);
+    CHECK(alias == 1 && src == &p_hidden && p_hidden.mock_destroyed == 0);
+    vk_texture_view(6);
+    src = entry_pick_alias(&target, &tk, &alias);
+    CHECK(alias == 1 && src == &p_hidden && p_hidden.mock_destroyed == 0);
+
+    // Case 5b: mixed chain (p_hidden -> p_rel -> p_vis) under view_upto == 5, tex_frozen == 0.
+    // p_hidden is walk-live (NOT destroyed, NOT aliased); p_rel is genuinely released (destroyed);
+    // p_vis is live at epoch 3 < 5 (NOT destroyed, chosen as alias source).
+    p_rel.key = tk;
+    p_rel.released = 1;
+    p_rel.live_seq = 0;
+    p_rel.mock_gpu_content = 1;
+    p_vis.key = tk;
+    p_vis.released = 0;
+    p_vis.live_seq = 3;
+    p_vis.mock_gpu_content = 1;
+    p_hidden.next_at = &p_rel;
+    p_rel.next_at = &p_vis;
+    p_vis.next_at = NULL;
+    vk_texture_view(5);
+    tex_frozen = 0;
+    src = entry_pick_alias(&target, &tk, &alias);
+    CHECK(alias == 1 && src == &p_vis);
+    CHECK(p_hidden.mock_destroyed == 0);
+    CHECK(p_rel.mock_destroyed == 1 && mock_destroy_count == 1);
+    CHECK(p_vis.mock_destroyed == 0);
+
+    // Case 5c: tex_frozen == 1 keeps genuinely released p_rel alive too.
+    p_rel.mock_destroyed = 0;
+    mock_destroy_count = 0;
+    tex_frozen = 1;
+    src = entry_pick_alias(&target, &tk, &alias);
+    CHECK(alias == 1 && src == &p_vis);
+    CHECK(p_hidden.mock_destroyed == 0 && p_rel.mock_destroyed == 0 && mock_destroy_count == 0);
+    tex_frozen = 0;
+    vk_texture_view(0);
+    free(by_addr.keys);
+    free(by_addr.vals);
+
+    // 6. Token-0 memo gating (slot_still + tex_info_lookup):
+    //    view_upto == 0 caches token 0 and hits on repeat while gen is unchanged;
+    //    view_upto != 0 refuses token-0 memo hits and skips caching token 0.
+    VkExec ex = {0};
+    GfxShaderRes res = {.slot = 0, .type = GFX_TEX_2D};
+    VkDescriptorImageInfo out = {0};
+    const uint64_t handle = (UINT64_C(7) << 20) | UINT64_C(99);
+    const uint32_t gen = 10, ep = 1, sg = 2;
+    int locked = 0;
+
+    memset(mock_dc.TD, 0, sizeof mock_dc.TD);
+    mock_full_calls = mock_lock_calls = mock_by_id_calls = 0;
+    mock_token_val = 0;
+    vk_texture_view(0);
+
+    // First lookup at view_upto == 0 with tok == 0 populates memo (valid == 1, tok == 0).
+    tex_info_lookup(&ex, &res, handle, 0, 0, gen, ep, sg, &locked, &out);
+    CHECK(mock_full_calls == 1);
+    // Repeat lookup with same gen hits memo without calling tex_info_full again.
+    locked = 0;
+    tex_info_lookup(&ex, &res, handle, 0, 0, gen, ep, sg, &locked, &out);
+    CHECK(mock_full_calls == 1 && locked == 0);
+    // Direct slot_still check: token 0 hits at same gen when !view_active, misses on gen change.
+    uint32_t egen = gen;
+    CHECK(slot_still(&ex, &egen, 0, handle, gen) == 1);
+    CHECK(slot_still(&ex, &egen, 0, handle, gen + 1) == 0);
+
+    // Switching to view_upto != 0 must NOT hit the previously cached token-0 entry, and must clear m->valid.
+    vk_texture_view(5);
+    egen = gen;
+    CHECK(slot_still(&ex, &egen, 0, handle, gen) == 0);
+    locked = 0;
+    tex_info_lookup(&ex, &res, handle, 0, 0, gen, ep, sg, &locked, &out);
+    CHECK(mock_full_calls == 2);
+    // Second lookup under view_upto != 0 with tok == 0 must also miss (token 0 was not cached).
+    locked = 0;
+    tex_info_lookup(&ex, &res, handle, 0, 0, gen, ep, sg, &locked, &out);
+    CHECK(mock_full_calls == 3);
+
+    // Under view_upto != 0, a non-zero token STILL caches and hits normally.
+    mock_token_val = (UINT64_C(12) << 32) | 5;
+    locked = 0;
+    tex_info_lookup(&ex, &res, handle, 0, 0, gen, ep, sg, &locked, &out);
+    CHECK(mock_full_calls == 4);
+    locked = 0;
+    tex_info_lookup(&ex, &res, handle, 0, 0, gen, ep, sg, &locked, &out);
+    CHECK(mock_full_calls == 4 && locked == 0);
     vk_texture_view(0);
 
     printf("hold_takeback: %d checks, %d failures\n", checks, fails);
     return fails != 0;
 }
 '''
-    return '\n'.join([prelude, *extracted, cases])
+    return '\n'.join([prelude, *extracted, *extracted_draw, cases])
 
 
 def main():

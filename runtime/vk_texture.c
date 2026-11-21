@@ -155,6 +155,7 @@ static uint32_t agen_idx(uint64_t addr) { return (uint32_t)(addr * 0x9E3779B97F4
 
 uint64_t vk_texture_takebacks(void) { return __atomic_load_n(&tex_tb_seq, __ATOMIC_ACQUIRE); }
 void vk_texture_view(uint64_t upto) { view_upto = upto; }
+int vk_texture_view_active(void) { return view_upto != 0; }
 
 static inline int tex_is_released(const Tex *e) {
     return e->released || (view_upto && e->live_seq >= view_upto);
@@ -1162,6 +1163,27 @@ static int takeback_free(const Tex *e, const tex_t *t, const TexKey *k) {
     return 1;
 }
 
+// Walks by_addr at k->addr when creating e: drops genuinely released entries unless tex_frozen, skips entries hidden
+// from view_upto without destroying walk-live ones, and picks the best live GPU-content alias source (preferring
+// same_but_swizzle). Caller holds tex_lock.
+static Tex *entry_pick_alias(Tex *e, const TexKey *k, int *alias_out) {
+    int alias = 0;
+    Tex *src = NULL;
+    for (Tex *p = nvn_hm_get(&by_addr, &k->addr), *nx; p; p = nx) {
+        nx = p->next_at;
+        if (tex_is_released(p)) {
+            if (p->released && !tex_frozen) destroy_tex(p);   // else kept: walk-live (view_upto) or hold_barrier
+            continue;
+        }
+        alias = 1;
+        if (tex_alias && (!src || (same_but_swizzle(&p->key, k) && !same_but_swizzle(&src->key, k))) &&
+            alias_compatible(e, p) && alias_has_gpu_content(p))
+            src = p;
+    }
+    *alias_out = alias;
+    return src;
+}
+
 static Tex *entry_of(const tex_t *t) {
     TexKey k;
     make_key(t, &k);
@@ -1186,7 +1208,7 @@ static Tex *entry_of(const tex_t *t) {
     if (vk_spec_helper()) {
         // The helper thread only reads: an entry to create, to take back into use or to describe anew is the replay
         // thread's to change, at its own position in the submission.
-        if (!e || e->released || !tex_same_desc(&e->t, t)) return vk_spec_fail(VK_SPEC_TEXTURE), NULL;
+        if (!e || tex_is_released(e) || !tex_same_desc(&e->t, t)) return vk_spec_fail(VK_SPEC_TEXTURE), NULL;
         return e;
     }
     if (!e) {
@@ -1199,21 +1221,8 @@ static Tex *entry_of(const tex_t *t) {
         perf_ph_end(PERF_PH_IMAGE, ph);
         if (!e) return NULL;
         perf_count(PERF_CNT_TEX_NEW);
-        // released entries of another descriptor at this address are replaced by the new one; a live one holding
-        // GPU-written content is the alias source, preferring the one that differs only in swizzle (same_but_swizzle)
         int alias = 0;
-        Tex *src = NULL;
-        for (Tex *p = nvn_hm_get(&by_addr, &k.addr), *nx; p; p = nx) {
-            nx = p->next_at;
-            if (p->released) {
-                if (!tex_frozen) destroy_tex(p);   // else kept: the walk may hold it (hold_barrier)
-                continue;
-            }
-            alias = 1;
-            if (tex_alias && (!src || (same_but_swizzle(&p->key, &k) && !same_but_swizzle(&src->key, &k))) &&
-                alias_compatible(e, p) && alias_has_gpu_content(p))
-                src = p;
-        }
+        Tex *src = entry_pick_alias(e, &k, &alias);
         if (alias) perf_count(PERF_CNT_TEX_ALIAS);
         if (tex_alias) {
             if (src && alias_copy(e, src)) {
