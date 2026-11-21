@@ -1,4 +1,4 @@
-"""Unit tests for stick radial calibration (s2_cal_apply), input_pad_stick sweeps, and spin_step cadence.
+"""Unit tests for input_pad_stick circular sweeps and spin_step high-FPS cadence accumulation.
 
 Extracts input_pad_stick from runtime/input_map.c and spin_step (+ scalar register helpers) verbatim from
 runtime/frame_rate.c, compiles tests/stick_spin_test.c at -O0 and -O2 with -Wall -Wextra -Werror, and runs it.

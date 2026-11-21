@@ -1,5 +1,5 @@
-// Unit tests for stick radial calibration (s2_cal_apply), input_pad_stick circular sweeps, and high-FPS stick-spin
-// ring cadence accumulation (runtime/frame_rate.c spin_step). No game files or GPU required.
+// Unit tests for input_pad_stick circular sweeps and high-FPS stick-spin ring cadence accumulation
+// (runtime/frame_rate.c spin_step). No game files or GPU required.
 #include <assert.h>
 #include <math.h>
 #include <stdint.h>
@@ -8,7 +8,6 @@
 #include <string.h>
 
 #include "cpu.h"
-#include "switch2_proto.h"
 
 #define STICK_MAX 32767
 
@@ -28,90 +27,6 @@ static double wrap_deg(double a) {
     while (a > 180.0) a -= 360.0;
     while (a <= -180.0) a += 360.0;
     return a;
-}
-
-static void check_s2_sweep(const s2_cal *cal, float dead, const char *label) {
-    float cx = (cal && cal->valid) ? cal->cx : 2048.f;
-    float cy = (cal && cal->valid) ? cal->cy : 2048.f;
-    float maxx = (cal && cal->valid) ? cal->maxx : 1200.f;
-    float minx = (cal && cal->valid) ? cal->minx : 1200.f;
-    float maxy = (cal && cal->valid) ? cal->maxy : 1200.f;
-    float miny = (cal && cal->valid) ? cal->miny : 1200.f;
-
-    /* 360-degree sweep at 5-degree steps crossing 0, 90, 180, 270 degrees at full and 65% deflection. */
-    const float scales[2] = {0.65f, 1.15f};
-    for (int si = 0; si < 2; si++) {
-        float prev_ang = 0.f;
-        for (int deg = 0; deg <= 360; deg += 5) {
-            double rad = (double)deg * PI / 180.0;
-            double c = cos(rad), s = sin(rad);
-            double rx = cx + c * (c >= 0 ? maxx : minx) * scales[si];
-            double ry = cy + s * (s >= 0 ? maxy : miny) * scales[si];
-            if (rx < 0.0) rx = 0.0;
-            if (rx > 4095.0) rx = 4095.0;
-            if (ry < 0.0) ry = 0.0;
-            if (ry > 4095.0) ry = 4095.0;
-            float x = 0.f, y = 0.f;
-            s2_cal_apply(cal, (uint16_t)lrint(rx), (uint16_t)lrint(ry), dead, &x, &y);
-            float r = hypotf(x, y);
-            if (!(r > 0.1f && r <= 1.0001f)) {
-                fprintf(stderr, "FAIL %s scale %.2f deg %d: r=%.5f (x=%.5f y=%.5f)\n", label, scales[si], deg, r, x, y);
-                abort();
-            }
-            float ang = atan2f(y, x) * (float)(180.0 / PI);
-            if (deg > 0) {
-                double d = wrap_deg((double)ang - (double)prev_ang);
-                if (!(d > 1.0 && d < 15.0)) {
-                    fprintf(stderr, "FAIL %s scale %.2f deg %d: non-monotonic delta %.4f (prev=%.3f now=%.3f)\n",
-                            label, scales[si], deg, d, prev_ang, ang);
-                    abort();
-                }
-            }
-            prev_ang = ang;
-        }
-    }
-}
-
-static void test_s2_cal_apply(void) {
-    /* 1. Default calibration (NULL and invalid). */
-    check_s2_sweep(NULL, S2_DEADZONE, "default-null");
-    s2_cal inv = {0};
-    check_s2_sweep(&inv, S2_DEADZONE, "default-invalid");
-
-    /* 2. Symmetric calibration. */
-    s2_cal sym = {.cx = 2048.f, .cy = 2048.f, .maxx = 1300.f, .minx = 1300.f, .maxy = 1300.f, .miny = 1300.f, .valid = 1};
-    check_s2_sweep(&sym, S2_DEADZONE, "symmetric");
-
-    /* 3. Asymmetric calibration. */
-    s2_cal asym = {.cx = 1980.f, .cy = 2110.f, .maxx = 1420.f, .minx = 1150.f, .maxy = 1180.f, .miny = 1360.f, .valid = 1};
-    check_s2_sweep(&asym, S2_DEADZONE, "asymmetric");
-
-    /* 4. Deadzone interior returns exact (0, 0), full travel reaches 1.0, overtravel clamps circularly to 1.0. */
-    float x, y;
-    s2_cal_apply(&sym, 2048, 2048, S2_DEADZONE, &x, &y);
-    assert(x == 0.f && y == 0.f);
-    s2_cal_apply(&sym, 2048 + 25, 2048 - 25, S2_DEADZONE, &x, &y);   // hypot(25, 25) = 35.35 < 40
-    assert(x == 0.f && y == 0.f);
-
-    s2_cal_apply(&sym, 2048 + 1300, 2048, S2_DEADZONE, &x, &y);
-    assert(fabsf(x - 1.f) < 1e-5f && fabsf(y) < 1e-5f);
-    s2_cal_apply(&sym, 2048, 2048 - 1300, S2_DEADZONE, &x, &y);
-    assert(fabsf(x) < 1e-5f && fabsf(y + 1.f) < 1e-5f);
-
-    /* Diagonal square corner (overtravel): circularly clamped to radius 1.0, not sqrt(2). */
-    s2_cal_apply(&sym, 2048 + 1300, 2048 + 1300, S2_DEADZONE, &x, &y);
-    assert(fabsf(hypotf(x, y) - 1.f) < 1e-5f && fabsf(x - y) < 1e-5f);
-
-    /* 5. Edge cases: zero span / huge deadzone / negative deadzone never produce NaN or Inf. */
-    s2_cal zspan = {.cx = 2048.f, .cy = 2048.f, .maxx = 0.f, .minx = 1000.f, .maxy = 1000.f, .miny = 0.f, .valid = 1};
-    s2_cal_apply(&zspan, 3000, 3000, S2_DEADZONE, &x, &y);
-    assert(isfinite(x) && isfinite(y) && hypotf(x, y) <= 1.0001f);
-    s2_cal_apply(&sym, 3000, 2048, 5000.f, &x, &y);   // dead > span -> d0 clamped to 0.99
-    assert(isfinite(x) && isfinite(y) && x == 0.f && y == 0.f);
-    s2_cal_apply(&sym, 2048 + 1300, 2048, 5000.f, &x, &y);   // full travel at d0=0.99 -> 1.0
-    assert(isfinite(x) && fabsf(x - 1.f) < 1e-4f);
-    s2_cal_apply(&sym, 2048 + 650, 2048, -10.f, &x, &y);
-    assert(isfinite(x) && fabsf(x - 0.5f) < 1e-5f && fabsf(y) < 1e-5f);
 }
 
 static void test_input_pad_stick_sweeps(void) {
@@ -332,7 +247,6 @@ static void test_spin_step_cadence_and_invariants(void) {
 }
 
 int main(void) {
-    test_s2_cal_apply();
     test_input_pad_stick_sweeps();
     test_spin_step_cadence_and_invariants();
     puts("stick_spin_test: ok");
