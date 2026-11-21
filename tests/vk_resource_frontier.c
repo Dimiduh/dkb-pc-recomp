@@ -139,7 +139,7 @@ typedef struct { int unused; } PoolRec;
 static struct { int n; struct { PoolRec *buf; } *e; } pool_index;
 static PlatMutex pool_lock, shadow_lock, gen_lock;
 static VmaPool stg_pool;
-static int stg_pool_tried, nm, npend, nwbl, nstouch, nspend, nsblocked, spend_dirty, s_live_n, nretiring, nphys;
+static int stg_pool_tried, nm, npend, nwbl, nstouch, nspend, nsblocked, spend_dirty, spend_merged, s_live_n, nretiring, nphys;
 static uint64_t s_live_bytes;
 static PoolRec **retiring;
 static uint32_t pool_gen;
