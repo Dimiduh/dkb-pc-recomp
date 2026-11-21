@@ -1,7 +1,8 @@
-"""Unit tests for parallel slice collection: compact snapshots, inline binds, and DLSS pass latch.
+"""Unit tests for parallel slice collection: compact snapshots, inline binds, DLSS pass latch, and par_collect_walk.
 
-Extracts ParPassSnap, ParSnap, par_pass_take/load, par_snap_take/load and par_bind_op verbatim from
-runtime/vk_exec.c, plus vk_dlss_scene_draw from runtime/vk_dlss.c, and verifies them at -O0 and -O2.
+Extracts ParPassSnap, ParSnap, par_pass_take/load, par_snap_take/load, state_op, par_run_op, par_bind_op, par_take,
+and par_collect_walk verbatim from runtime/vk_exec.c, plus vk_dlss_scene_draw from runtime/vk_dlss.c, and verifies them
+at -O0 and -O2.
 """
 import argparse
 from pathlib import Path
@@ -46,19 +47,22 @@ HARNESS = r'''
 #include "vk_exec.h"
 #include "vk_spec.h"
 
-/* ---- stubs for par_bind_op fallback ---- */
+/* ---- stubs for par_bind_op fallback and par_collect_walk ---- */
 static int g_fallback_calls;
 static uint32_t g_fallback_last_op;
+static int g_trace_draw_ops;
+
+static void record_direct_op(uint32_t op, const void *payload, int depth);
 
 void vk_exec_op_draw(VkExec *ex, uint32_t op, const void *payload) {
     (void)ex;
-    (void)payload;
     g_fallback_calls++;
     g_fallback_last_op = op;
+    if (g_trace_draw_ops) record_direct_op(op, payload, -1);
 }
 
-/* ---- extracted vk_exec.c types and functions ---- */
-/* VK_EXEC_EXTRACT */
+/* ---- extracted vk_exec.c types and snapshot/bind functions ---- */
+/* VK_EXEC_SNAP_EXTRACT */
 
 /* ---- stubs and state for vk_dlss_scene_draw ---- */
 #define CAM_BLOCK 0x100u
@@ -98,6 +102,301 @@ _Thread_local int vk_spec_here = 0;
 
 /* ---- extracted vk_dlss.c function ---- */
 /* VK_DLSS_EXTRACT */
+
+/* ---- harness state and stubs for par_take / par_collect_walk differential tests ---- */
+#define CALL_DEPTH 16
+#define PAR_MAX_SLICES 32
+static int g_par_max_ops = 256;
+#define PAR_MAX_OPS g_par_max_ops
+
+static VkExec X;
+VkExecFrame vk_exec_frame;
+static uint64_t draws_total;
+static uint32_t pass_draws;
+int vk_dump_armed;
+static uint32_t wb_tag_walk;
+static int pd_n;
+static int split_draws, split_n = 100000;
+static uint64_t par_end_op[OP_COUNT_ + 1];
+static _Thread_local const op_hdr *walk_at;
+static _Thread_local const op_hdr *walk_ret[CALL_DEPTH];
+static _Thread_local int walk_depth;
+static uint16_t pss0[PAR_MAX_SLICES];
+static volatile uint8_t pdone[PAR_MAX_SLICES];
+static int par_skip_start;
+
+static struct {
+    const op_hdr *next;
+} P;
+
+static struct {
+    int on;
+    const op_hdr **ops;
+    int nops;
+    ParSnap *snap;
+    int start[PAR_MAX_SLICES], end[PAR_MAX_SLICES];
+    int nslices, s0, upd;
+    uint8_t soq[PAR_MAX_SLICES], supd[PAR_MAX_SLICES], snote[PAR_MAX_SLICES];
+    uint32_t stag[PAR_MAX_SLICES];
+    VkQueryControlFlags soqf[PAR_MAX_SLICES];
+    int draws, slice_draws, slice_size;
+    int oq;
+    VkQueryControlFlags oq_flags;
+    uint8_t dlss_done, inline_binds;
+} PC;
+
+static int g_par_indirect_on = 1;
+static int g_par_slice_size = 2;
+static int g_sync_noting = 1;
+static int g_par_inline_binds = 1;
+static int g_use_fast = 0;
+static int g_par_start_allow = 1;
+
+typedef struct {
+    int nops, nslices, s0, draws, publish_calls;
+    const op_hdr *ops[256];
+    int start[PAR_MAX_SLICES], end[PAR_MAX_SLICES];
+    ParSnap snap[PAR_MAX_SLICES];
+    uint8_t soq[PAR_MAX_SLICES], supd[PAR_MAX_SLICES], snote[PAR_MAX_SLICES], pdone_v[PAR_MAX_SLICES];
+    uint32_t stag[PAR_MAX_SLICES];
+    VkQueryControlFlags soqf[PAR_MAX_SLICES];
+    uint16_t pss0_v[PAR_MAX_SLICES];
+} FlushRec;
+
+typedef struct {
+    uint32_t op;
+    const void *payload;
+    int depth;
+    const op_hdr *w_at;
+    int w_depth;
+    const op_hdr *w_ret[CALL_DEPTH];
+} DirectRec;
+
+typedef struct {
+    int nflush;
+    FlushRec flushes[16];
+    int ndirect;
+    DirectRec direct[512];
+    int par_start_calls, par_flush_calls, par_publish_calls;
+    int settle_calls, split_calls;
+    VkExec ex_final;
+    uint64_t draws_total, draws_seen;
+    uint32_t pass_draws;
+    uint64_t par_end_op[OP_COUNT_ + 1];
+    int pc_on, pc_nops, pc_nslices, pc_draws, pc_slice_draws, pc_slice_size;
+    uint8_t pc_dlss_done;
+    const op_hdr *pc_ops[256];
+    const op_hdr *final_walk_at;
+    int final_walk_depth;
+} RunTrace;
+
+static RunTrace *g_trace;
+
+static void record_direct_op(uint32_t op, const void *payload, int depth) {
+    if (!g_trace) return;
+    assert(g_trace->ndirect < 512);
+    DirectRec *r = &g_trace->direct[g_trace->ndirect++];
+    memset(r, 0, sizeof *r);
+    r->op = op;
+    r->payload = payload;
+    r->depth = depth;
+    r->w_at = walk_at;
+    r->w_depth = walk_depth;
+    for (int i = 0; i < walk_depth && i < CALL_DEPTH; i++) r->w_ret[i] = walk_ret[i];
+}
+
+void rt_fatal(const char *fmt, ...) {
+    (void)fmt;
+    abort();
+}
+
+static int par_indirect(void) { return g_par_indirect_on; }
+static int par_size(void) { return g_par_slice_size; }
+int vk_sync_noting(void) { return g_sync_noting; }
+
+static void par_publish(void) {
+    PC.end[PC.nslices - 1] = PC.nops;
+    if (g_trace) g_trace->par_publish_calls++;
+}
+
+static int par_settle_ready(VkExec *ex) {
+    (void)ex;
+    if (g_trace) g_trace->settle_calls++;
+    return 1;
+}
+
+static void maybe_split(VkExec *ex) {
+    (void)ex;
+    if (g_trace) g_trace->split_calls++;
+}
+
+static int par_start(VkExec *ex) {
+    if (g_trace) g_trace->par_start_calls++;
+    if (!g_par_start_allow || ex->in_pass) return 0;
+    ex->in_pass = 1;
+    PC.nops = 0;
+    PC.nslices = 0;
+    PC.s0 = 0;
+    PC.on = 1;
+    PC.draws = 0;
+    PC.dlss_done = 0;
+    PC.inline_binds = (uint8_t)g_par_inline_binds;
+    PC.slice_size = PC.slice_draws = par_size();
+    PC.oq = 1;
+    PC.oq_flags = VK_QUERY_CONTROL_PRECISE_BIT;
+    PC.upd = 2;
+    return 1;
+}
+
+static void par_flush(VkExec *ex) {
+    if (!PC.on) return;
+    if (g_trace) g_trace->par_flush_calls++;
+    PC.on = 0;
+    if (PC.nslices) par_publish();
+    if (g_trace) {
+        assert(g_trace->nflush < 16);
+        FlushRec *f = &g_trace->flushes[g_trace->nflush++];
+        memset(f, 0, sizeof *f);
+        f->nops = PC.nops;
+        f->nslices = PC.nslices;
+        f->s0 = PC.s0;
+        f->draws = PC.draws;
+        f->publish_calls = g_trace->par_publish_calls;
+        assert(PC.nops <= 256);
+        for (int i = 0; i < PC.nops; i++) f->ops[i] = PC.ops[i];
+        for (int i = 0; i < PC.nslices; i++) {
+            f->start[i] = PC.start[i];
+            f->end[i] = PC.end[i];
+            f->snap[i] = PC.snap[i];
+            f->soq[i] = PC.soq[i];
+            f->supd[i] = PC.supd[i];
+            f->snote[i] = PC.snote[i];
+            f->stag[i] = PC.stag[i];
+            f->soqf[i] = PC.soqf[i];
+            f->pss0_v[i] = pss0[i];
+            f->pdone_v[i] = pdone[i];
+        }
+    }
+    ex->tex_serial++;
+    ex->in_pass = 0;
+    ex->dirty = VK_EXEC_DIRTY_ALL;
+}
+
+static void walk(VkExec *ex, const op_hdr *h, int depth);
+
+/* ---- extracted vk_exec.c walk/collection functions ---- */
+/* VK_EXEC_WALK_EXTRACT */
+
+static void walk(VkExec *ex, const op_hdr *h, int depth) {
+    for (;;) {
+        if (ex == &X) walk_at = h, walk_depth = depth;
+        if (h->size < sizeof *h || (h->size & 7) || h->op >= OP_COUNT_) abort();
+        const void *a = nvn_op_payload(h);
+        int skip_par = par_skip_start;
+        par_skip_start = 0;
+        if (g_use_fast) {
+            if (PC.on && !P.next && h->op != OP_END) {
+                int res = 0;
+                h = par_collect_walk(ex, h, depth, &res);
+                if (res) continue;
+                a = nvn_op_payload(h);
+            } else if (h->op != OP_END && h->op != OP_BEGIN && h->op != OP_JUMP && h->op != OP_CALL) {
+                if (PC.on) {
+                    if (par_take(ex, h, a)) {
+                        if (par_run_op(h->op) == 2) draws_total++, pass_draws++;
+                        h = nvn_op_next(h);
+                        continue;
+                    }
+                    par_end_op[h->op]++;
+                    par_flush(ex);
+                } else if (!skip_par && par_run_op(h->op) == 2 && par_start(ex)) {
+                    if (!P.next) {
+                        int res = 0;
+                        h = par_collect_walk(ex, h, depth, &res);
+                        if (res) continue;
+                        a = nvn_op_payload(h);
+                    } else if (par_take(ex, h, a)) {
+                        draws_total++, pass_draws++;
+                        h = nvn_op_next(h);
+                        continue;
+                    } else {
+                        par_end_op[h->op]++;
+                        par_flush(ex);
+                    }
+                }
+            }
+        } else {
+            if (h->op != OP_END && h->op != OP_BEGIN && h->op != OP_JUMP && h->op != OP_CALL) {
+                if (PC.on) {
+                    if (par_take(ex, h, a)) {
+                        if (par_run_op(h->op) == 2) draws_total++, pass_draws++;
+                        h = nvn_op_next(h);
+                        continue;
+                    }
+                    par_end_op[h->op]++;
+                    par_flush(ex);
+                } else if (par_run_op(h->op) == 2 && par_start(ex)) {
+                    if (par_take(ex, h, a)) {
+                        draws_total++, pass_draws++;
+                        h = nvn_op_next(h);
+                        continue;
+                    }
+                    par_end_op[h->op]++;
+                    par_flush(ex);
+                }
+            }
+        }
+        switch (h->op) {
+        case OP_END: return;
+        case OP_BEGIN: break;
+        case OP_JUMP: h = (const op_hdr *)(uintptr_t)((const p_jump *)a)->target; continue;
+        case OP_CALL:
+            if (depth >= CALL_DEPTH) abort();
+            if (ex == &X) walk_ret[depth] = nvn_op_next(h);
+            walk(ex, nvn_op_first(((const p_jump *)a)->target), depth + 1);
+            break;
+        case OP_SET_RT:
+            record_direct_op(h->op, a, depth);
+            if (memcmp(&ex->rt, a, sizeof ex->rt)) {
+                ex->in_pass = 0;
+                ex->rt = *(const p_set_rt *)a;
+                ex->rt_resolved = 0;
+            }
+            break;
+        case OP_BARRIER:
+            record_direct_op(h->op, a, depth);
+            ex->game_barrier = 1;
+            break;
+        case OP_WAIT_SYNC:
+            record_direct_op(h->op, a, depth);
+            break;
+        case OP_DRAW: case OP_DRAW_IDX: case OP_DRAW_IDX_IND: case OP_DISPATCH:
+            record_direct_op(h->op, a, depth);
+            if (h->op == OP_DRAW || h->op == OP_DRAW_IDX || h->op == OP_DRAW_IDX_IND) {
+                vk_exec_frame.draws_seen++;
+                split_draws++;
+            } else {
+                vk_exec_frame.dispatches++;
+                split_draws++;
+            }
+            draws_total++;
+            break;
+        case OP_BIND_PROGRAM: case OP_BIND_STATE: case OP_BIND_VATTR: case OP_BIND_VSTREAM: case OP_BIND_VBUF:
+        case OP_BIND_UBO: case OP_BIND_SSBO: case OP_BIND_TEX: case OP_BIND_SAMP: case OP_BIND_IMG: case OP_PUSH_CONST:
+            record_direct_op(h->op, a, depth);
+            par_bind_op(ex, h->op, a);
+            break;
+        default:
+            record_direct_op(h->op, a, depth);
+            assert(state_op(ex, h->op, a));
+            break;
+        }
+        if ((h->op == OP_DRAW || h->op == OP_DRAW_IDX || h->op == OP_DRAW_IDX_IND) && ex->in_pass) pass_draws++;
+        if (pd_n) par_settle_ready(ex);
+        if (split_draws >= split_n) maybe_split(ex);
+        h = nvn_op_next(h);
+    }
+}
 
 static void test_pass_snap(void) {
     VkExec ex, w;
@@ -399,11 +698,448 @@ static void test_dlss_latch(void) {
     assert(S.serial == 11);
 }
 
+typedef struct {
+    _Alignas(8) uint8_t mem[8192];
+    size_t off;
+} OpBuf;
+
+static const op_hdr *opbuf_first(const OpBuf *b) {
+    return (const op_hdr *)(const void *)b->mem;
+}
+
+static const op_hdr *emit_op(OpBuf *b, uint32_t op, const void *payload, size_t plen) {
+    size_t sz = ((sizeof(op_hdr) + plen) + 7u) & ~(size_t)7u;
+    assert(b->off + sz <= sizeof b->mem);
+    op_hdr *h = (op_hdr *)(void *)(b->mem + b->off);
+    memset(h, 0, sz);
+    h->op = op;
+    h->size = (uint32_t)sz;
+    if (payload && plen) memcpy(h + 1, payload, plen);
+    b->off += sz;
+    return h;
+}
+
+static const op_hdr *emit_jump(OpBuf *b, const op_hdr *target) {
+    p_jump j = {.target = (uint64_t)(uintptr_t)target};
+    return emit_op(b, OP_JUMP, &j, sizeof j);
+}
+
+static const op_hdr *emit_call(OpBuf *b, const op_hdr *callee) {
+    p_jump j = {.target = (uint64_t)(uintptr_t)callee};
+    return emit_op(b, OP_CALL, &j, sizeof j);
+}
+
+static void run_streams(RunTrace *out, const op_hdr *const *streams, int nstreams, int use_fast,
+                        const VkExec *init_ex, int use_X, int flush_end) {
+    static const op_hdr *ops_buf[256];
+    static ParSnap snap_buf[PAR_MAX_SLICES];
+    memset(out, 0, sizeof *out);
+    memset(&PC, 0, sizeof PC);
+    memset(snap_buf, 0x5a, sizeof snap_buf);
+    PC.ops = ops_buf;
+    PC.snap = snap_buf;
+    memset(&P, 0, sizeof P);
+    memset(&vk_exec_frame, 0, sizeof vk_exec_frame);
+    memset(par_end_op, 0, sizeof par_end_op);
+    memset(pss0, 0, sizeof pss0);
+    memset((void *)pdone, 0xaa, sizeof pdone);
+    draws_total = 0;
+    pass_draws = 0;
+    wb_tag_walk = 7;
+    split_draws = 0;
+    par_skip_start = 0;
+    walk_at = NULL;
+    walk_depth = 0;
+    memset(walk_ret, 0, sizeof walk_ret);
+    g_use_fast = use_fast;
+    g_trace = out;
+    g_trace_draw_ops = 1;
+
+    VkExec local_ex;
+    VkExec *ex = use_X ? &X : &local_ex;
+    if (init_ex) *ex = *init_ex;
+    else memset(ex, 0, sizeof *ex);
+
+    for (int i = 0; i < nstreams; i++) walk(ex, streams[i], 0);
+    if (flush_end && PC.on) {
+        par_end_op[OP_COUNT_]++;
+        par_flush(ex);
+    }
+
+    out->ex_final = *ex;
+    out->draws_total = draws_total;
+    out->draws_seen = vk_exec_frame.draws_seen;
+    out->pass_draws = pass_draws;
+    memcpy(out->par_end_op, par_end_op, sizeof par_end_op);
+    out->pc_on = PC.on;
+    out->pc_nops = PC.nops;
+    out->pc_nslices = PC.nslices;
+    out->pc_draws = PC.draws;
+    out->pc_slice_draws = PC.slice_draws;
+    out->pc_slice_size = PC.slice_size;
+    out->pc_dlss_done = PC.dlss_done;
+    for (int i = 0; i < PC.nops && i < 256; i++) out->pc_ops[i] = PC.ops[i];
+    out->final_walk_at = walk_at;
+    out->final_walk_depth = walk_depth;
+
+    g_trace_draw_ops = 0;
+    g_trace = NULL;
+}
+
+static void assert_traces_equal(const RunTrace *ref, const RunTrace *fast) {
+    assert(ref->nflush == fast->nflush);
+    assert(ref->par_start_calls == fast->par_start_calls);
+    assert(ref->par_flush_calls == fast->par_flush_calls);
+    assert(ref->par_publish_calls == fast->par_publish_calls);
+    assert(ref->ndirect == fast->ndirect);
+    assert(ref->draws_total == fast->draws_total);
+    assert(ref->draws_seen == fast->draws_seen);
+    assert(ref->pass_draws == fast->pass_draws);
+    assert(memcmp(ref->par_end_op, fast->par_end_op, sizeof ref->par_end_op) == 0);
+    assert(memcmp(&ref->ex_final, &fast->ex_final, sizeof ref->ex_final) == 0);
+    assert(ref->pc_on == fast->pc_on);
+    assert(ref->pc_nops == fast->pc_nops);
+    assert(ref->pc_nslices == fast->pc_nslices);
+    assert(ref->pc_draws == fast->pc_draws);
+    assert(ref->pc_slice_draws == fast->pc_slice_draws);
+    assert(ref->pc_slice_size == fast->pc_slice_size);
+    assert(ref->pc_dlss_done == fast->pc_dlss_done);
+    assert(ref->final_walk_at == fast->final_walk_at);
+    assert(ref->final_walk_depth == fast->final_walk_depth);
+    for (int i = 0; i < ref->pc_nops; i++) assert(ref->pc_ops[i] == fast->pc_ops[i]);
+
+    for (int f = 0; f < ref->nflush; f++) {
+        const FlushRec *a = &ref->flushes[f], *b = &fast->flushes[f];
+        assert(a->nops == b->nops);
+        assert(a->nslices == b->nslices);
+        assert(a->s0 == b->s0);
+        assert(a->draws == b->draws);
+        assert(a->publish_calls == b->publish_calls);
+        for (int i = 0; i < a->nops; i++) assert(a->ops[i] == b->ops[i]);
+        for (int i = 0; i < a->nslices; i++) {
+            assert(a->start[i] == b->start[i]);
+            assert(a->end[i] == b->end[i]);
+            assert(a->soq[i] == b->soq[i]);
+            assert(a->supd[i] == b->supd[i]);
+            assert(a->snote[i] == b->snote[i]);
+            assert(a->stag[i] == b->stag[i]);
+            assert(a->soqf[i] == b->soqf[i]);
+            assert(a->pss0_v[i] == b->pss0_v[i]);
+            assert(a->pdone_v[i] == b->pdone_v[i]);
+            VkExec wa, wb;
+            memset(&wa, 0, sizeof wa);
+            memset(&wb, 0, sizeof wb);
+            par_snap_load(&wa, &a->snap[i]);
+            par_snap_load(&wb, &b->snap[i]);
+            assert(memcmp(&wa, &wb, sizeof wa) == 0);
+        }
+    }
+
+    for (int d = 0; d < ref->ndirect; d++) {
+        const DirectRec *a = &ref->direct[d], *b = &fast->direct[d];
+        assert(a->op == b->op);
+        assert(a->payload == b->payload);
+        assert(a->depth == b->depth);
+        assert(a->w_at == b->w_at);
+        assert(a->w_depth == b->w_depth);
+        for (int k = 0; k < a->w_depth && k < CALL_DEPTH; k++) assert(a->w_ret[k] == b->w_ret[k]);
+    }
+}
+
+static void compare_scenario(const op_hdr *const *streams, int nstreams, const VkExec *init_ex, int use_X, int flush_end,
+                             RunTrace *out_fast) {
+    static RunTrace ref, fast;
+    run_streams(&ref, streams, nstreams, 0, init_ex, use_X, flush_end);
+    run_streams(&fast, streams, nstreams, 1, init_ex, use_X, flush_end);
+    assert_traces_equal(&ref, &fast);
+    if (out_fast) *out_fast = fast;
+}
+
+static void test_par_collect_walk_nested_calls_jumps_and_slices(void) {
+    static OpBuf top, c1, c1_tail, c2;
+    memset(&top, 0, sizeof top);
+    memset(&c1, 0, sizeof c1);
+    memset(&c1_tail, 0, sizeof c1_tail);
+    memset(&c2, 0, sizeof c2);
+
+    p_set_rt rt_a = {.n = 1};
+    rt_a.color[0] = (const tex_t *)(uintptr_t)0x1000;
+    p_set_rt rt_b = {.n = 1};
+    rt_b.color[0] = (const tex_t *)(uintptr_t)0x2000;
+    p_viewports vp = {.first = 0, .n = 1, .v = {{0.0f, 0.0f, 1280.0f, 720.0f, 0.0f, 1.0f}}};
+    p_bind_buf ubo1 = {.stage = 0, .index = 2, .addr = 0x40000, .size = 64};
+    p_bind_buf ubo2 = {.stage = 1, .index = 3, .addr = 0x50000, .size = 128};
+    p_bind_vbuf vb = {.first = 1, .n = 1, .r = {{.address = 0x60000, .size = 256}}};
+    p_push_const pc = {.compute = 0, .table = 0, .offset = 4, .bytes = 4, .w = {0x12345678u}};
+    p_wait_sync ws = {.sync = NULL};
+    uint64_t draw_stub[4] = {1, 2, 3, 4};
+
+    /* c2 (depth 2): OP_BEGIN, matching OP_SET_RT, OP_WAIT_SYNC, bind, 3 draws (forces slice cut), OP_END */
+    emit_op(&c2, OP_BEGIN, NULL, 0);
+    emit_op(&c2, OP_SET_RT, &rt_a, sizeof rt_a);
+    emit_op(&c2, OP_WAIT_SYNC, &ws, sizeof ws);
+    emit_op(&c2, OP_BIND_UBO, &ubo2, sizeof ubo2);
+    emit_op(&c2, OP_DRAW_IDX, draw_stub, sizeof draw_stub);
+    emit_op(&c2, OP_DRAW_IDX, draw_stub, sizeof draw_stub);
+    emit_op(&c2, OP_DRAW_IDX_IND, draw_stub, sizeof draw_stub);
+    emit_op(&c2, OP_END, NULL, 0);
+
+    /* c1_tail: call c2, push_const, draw, OP_END */
+    emit_op(&c1_tail, OP_BEGIN, NULL, 0);
+    emit_call(&c1_tail, opbuf_first(&c2));
+    emit_op(&c1_tail, OP_PUSH_CONST, &pc, sizeof pc);
+    emit_op(&c1_tail, OP_DRAW, draw_stub, sizeof draw_stub);
+    emit_op(&c1_tail, OP_END, NULL, 0);
+
+    /* c1 (depth 1): OP_BEGIN, vbuf bind, OP_JUMP -> c1_tail */
+    emit_op(&c1, OP_BEGIN, NULL, 0);
+    emit_op(&c1, OP_BIND_VBUF, &vb, sizeof vb);
+    emit_jump(&c1, opbuf_first(&c1_tail));
+
+    /* top (depth 0): set rt_a, draw (starts pass), vp, ubo1, call c1, draw, set rt_b (flushes), OP_END */
+    emit_op(&top, OP_BEGIN, NULL, 0);
+    emit_op(&top, OP_SET_RT, &rt_a, sizeof rt_a);
+    emit_op(&top, OP_DRAW, draw_stub, sizeof draw_stub);
+    emit_op(&top, OP_VIEWPORTS, &vp, sizeof vp);
+    emit_op(&top, OP_BIND_UBO, &ubo1, sizeof ubo1);
+    emit_call(&top, opbuf_first(&c1));
+    emit_op(&top, OP_DRAW_IDX, draw_stub, sizeof draw_stub);
+    emit_op(&top, OP_SET_RT, &rt_b, sizeof rt_b);
+    emit_op(&top, OP_END, NULL, 0);
+
+    g_par_max_ops = 256;
+    g_par_slice_size = 2;
+    g_par_indirect_on = 1;
+    g_par_inline_binds = 1;
+    g_dlss_wanted = 0;
+    vk_dump_armed = 0;
+    pd_n = 0;
+
+    static RunTrace fast;
+    const op_hdr *streams[1] = {opbuf_first(&top)};
+    compare_scenario(streams, 1, NULL, 1, 1, &fast);
+
+    assert(fast.nflush == 1);
+    assert(fast.flushes[0].draws == 6);
+    assert(fast.flushes[0].nslices == 3);
+    assert(fast.par_end_op[OP_SET_RT] == 1);
+    /* Verify neither matching OP_SET_RT nor OP_WAIT_SYNC was pushed into PC.ops. */
+    for (int i = 0; i < fast.flushes[0].nops; i++) {
+        assert(fast.flushes[0].ops[i]->op != OP_SET_RT);
+        assert(fast.flushes[0].ops[i]->op != OP_WAIT_SYNC);
+    }
+    /* Verify slices' snapshots saw the binds preceding each slice cut. */
+    assert(fast.flushes[0].snap[0].vbuf_hi == 0 && fast.flushes[0].snap[0].ubo_hi[0] == 0);
+    assert(fast.flushes[0].snap[1].vbuf_hi == 2 && fast.flushes[0].snap[1].ubo_hi[0] == 3);
+    assert(fast.flushes[0].snap[2].ubo_hi[1] == 4);
+}
+
+static void test_par_collect_walk_mid_call_exits_and_unwind(void) {
+    static OpBuf top, c1, c2;
+    memset(&top, 0, sizeof top);
+    memset(&c1, 0, sizeof c1);
+    memset(&c2, 0, sizeof c2);
+
+    p_bind_buf ubo = {.stage = 0, .index = 1, .addr = 0x71000, .size = 64};
+    p_barrier bar = {.bits = 1};
+    uint64_t draw_stub[4] = {10, 20, 30, 40};
+
+    /* c2 (depth 2): draw, OP_BARRIER (mid-call exit!), OP_DISPATCH, draw (starts 2nd sliced pass in callee!), OP_END */
+    emit_op(&c2, OP_BEGIN, NULL, 0);
+    emit_op(&c2, OP_DRAW_IDX, draw_stub, sizeof draw_stub);
+    emit_op(&c2, OP_BARRIER, &bar, sizeof bar);
+    emit_op(&c2, OP_DISPATCH, draw_stub, sizeof draw_stub);
+    emit_op(&c2, OP_DRAW, draw_stub, sizeof draw_stub);
+    emit_op(&c2, OP_END, NULL, 0);
+
+    /* c1 (depth 1): bind ubo, call c2, draw (continues 2nd pass after c2's OP_END!), OP_END */
+    emit_op(&c1, OP_BEGIN, NULL, 0);
+    emit_op(&c1, OP_BIND_UBO, &ubo, sizeof ubo);
+    emit_call(&c1, opbuf_first(&c2));
+    emit_op(&c1, OP_DRAW_IDX, draw_stub, sizeof draw_stub);
+    emit_op(&c1, OP_END, NULL, 0);
+
+    /* top (depth 0): draw (starts 1st pass), call c1, draw (continues 2nd pass at depth 0!), OP_BARRIER (flushes 2nd), OP_END */
+    emit_op(&top, OP_BEGIN, NULL, 0);
+    emit_op(&top, OP_DRAW, draw_stub, sizeof draw_stub);
+    emit_call(&top, opbuf_first(&c1));
+    emit_op(&top, OP_DRAW, draw_stub, sizeof draw_stub);
+    emit_op(&top, OP_BARRIER, &bar, sizeof bar);
+    emit_op(&top, OP_END, NULL, 0);
+
+    g_par_max_ops = 256;
+    g_par_slice_size = 2;
+    g_par_indirect_on = 1;
+    g_par_inline_binds = 1;
+    vk_dump_armed = 0;
+    pd_n = 1;
+    split_n = 1;
+
+    static RunTrace fast;
+    const op_hdr *streams[1] = {opbuf_first(&top)};
+    compare_scenario(streams, 1, NULL, 1, 1, &fast);
+
+    assert(fast.nflush == 2);
+    assert(fast.flushes[0].draws == 2);
+    assert(fast.flushes[1].draws == 3);
+    assert(fast.par_end_op[OP_BARRIER] == 2);
+    assert(fast.ndirect == 3);
+    assert(fast.direct[0].op == OP_BARRIER && fast.direct[0].depth == 2);
+    assert(fast.direct[1].op == OP_DISPATCH && fast.direct[1].depth == 2);
+    assert(fast.direct[2].op == OP_BARRIER && fast.direct[2].depth == 0);
+    /* Verify post-call settle/split calls fire during unwind. */
+    assert(fast.settle_calls > 0 && fast.split_calls > 0);
+    pd_n = 0;
+    split_n = 100000;
+}
+
+static void test_par_collect_walk_max_ops_and_indirect_stop(void) {
+    static OpBuf top, c1;
+    memset(&top, 0, sizeof top);
+    memset(&c1, 0, sizeof c1);
+
+    p_bind_buf ubo = {.stage = 0, .index = 0, .addr = 0x80000, .size = 64};
+    uint64_t draw_stub[4] = {1, 2, 3, 4};
+
+    /* c1 (depth 1): ubo, draw (op 3 -> hits PAR_MAX_OPS=3!), draw (starts 2nd pass), OP_DRAW_IDX_IND (stops when !par_indirect), OP_END */
+    emit_op(&c1, OP_BEGIN, NULL, 0);
+    emit_op(&c1, OP_BIND_UBO, &ubo, sizeof ubo);
+    emit_op(&c1, OP_DRAW_IDX, draw_stub, sizeof draw_stub);
+    emit_op(&c1, OP_DRAW_IDX, draw_stub, sizeof draw_stub);
+    emit_op(&c1, OP_DRAW_IDX_IND, draw_stub, sizeof draw_stub);
+    emit_op(&c1, OP_END, NULL, 0);
+
+    /* top (depth 0): draw (op 0), ubo (op 1), call c1, draw, OP_END */
+    emit_op(&top, OP_BEGIN, NULL, 0);
+    emit_op(&top, OP_DRAW, draw_stub, sizeof draw_stub);
+    emit_op(&top, OP_BIND_UBO, &ubo, sizeof ubo);
+    emit_call(&top, opbuf_first(&c1));
+    emit_op(&top, OP_DRAW, draw_stub, sizeof draw_stub);
+    emit_op(&top, OP_END, NULL, 0);
+
+    /* Case A: PAR_MAX_OPS=3 hit on OP_DRAW_IDX mid-OP_CALL, plus !par_indirect mid-OP_CALL. */
+    g_par_max_ops = 3;
+    g_par_slice_size = 4;
+    g_par_indirect_on = 0;
+    g_par_inline_binds = 1;
+    vk_dump_armed = 0;
+    pd_n = 0;
+
+    static RunTrace fast;
+    const op_hdr *streams[1] = {opbuf_first(&top)};
+    compare_scenario(streams, 1, NULL, 1, 1, &fast);
+    assert(fast.nflush == 3);
+    assert(fast.par_end_op[OP_DRAW_IDX] == 1);
+    assert(fast.par_end_op[OP_DRAW_IDX_IND] == 1);
+    assert(fast.par_end_op[OP_COUNT_] == 1);
+
+    /* Case B: PAR_MAX_OPS=2 hit on OP_WAIT_SYNC and matching OP_SET_RT at depth 0. */
+    static OpBuf top2;
+    memset(&top2, 0, sizeof top2);
+    p_wait_sync ws = {.sync = NULL};
+    p_set_rt rt0;
+    memset(&rt0, 0, sizeof rt0);
+    emit_op(&top2, OP_BEGIN, NULL, 0);
+    emit_op(&top2, OP_DRAW, draw_stub, sizeof draw_stub);
+    emit_op(&top2, OP_BIND_UBO, &ubo, sizeof ubo);
+    emit_op(&top2, OP_WAIT_SYNC, &ws, sizeof ws);
+    emit_op(&top2, OP_DRAW, draw_stub, sizeof draw_stub);
+    emit_op(&top2, OP_BIND_UBO, &ubo, sizeof ubo);
+    emit_op(&top2, OP_SET_RT, &rt0, sizeof rt0);
+    emit_op(&top2, OP_END, NULL, 0);
+
+    g_par_max_ops = 2;
+    g_par_indirect_on = 1;
+    const op_hdr *streams2[1] = {opbuf_first(&top2)};
+    compare_scenario(streams2, 1, NULL, 1, 1, &fast);
+    assert(fast.nflush == 2);
+    assert(fast.par_end_op[OP_WAIT_SYNC] == 1);
+    assert(fast.par_end_op[OP_SET_RT] == 1);
+}
+
+static void test_par_collect_walk_op_end_across_cmdbufs_and_modes(void) {
+    static OpBuf cb1, cb2, sub;
+    memset(&cb1, 0, sizeof cb1);
+    memset(&cb2, 0, sizeof cb2);
+    memset(&sub, 0, sizeof sub);
+
+    p_bind_buf ubo = {.stage = 0, .index = 0, .addr = 0x60000, .size = CAM_BLOCK};
+    uint64_t draw_stub[4] = {7, 8, 9, 10};
+
+    /* sub (depth 1): OP_DRAW, OP_END (pops back to cb1, stays in par_collect_walk). */
+    emit_op(&sub, OP_BEGIN, NULL, 0);
+    emit_op(&sub, OP_DRAW, draw_stub, sizeof draw_stub);
+    emit_op(&sub, OP_END, NULL, 0);
+
+    /* cb1 (depth 0): bind ubo, draw (starts pass), call sub, OP_END (depth == d0: returns with PC.on == 1!). */
+    emit_op(&cb1, OP_BEGIN, NULL, 0);
+    emit_op(&cb1, OP_BIND_UBO, &ubo, sizeof ubo);
+    emit_op(&cb1, OP_DRAW_IDX, draw_stub, sizeof draw_stub);
+    emit_call(&cb1, opbuf_first(&sub));
+    emit_op(&cb1, OP_END, NULL, 0);
+
+    /* cb2 (depth 0, walked while PC.on == 1): bind ubo, draw, OP_END (still PC.on == 1 until caller flushes!). */
+    emit_op(&cb2, OP_BEGIN, NULL, 0);
+    emit_op(&cb2, OP_BIND_UBO, &ubo, sizeof ubo);
+    emit_op(&cb2, OP_DRAW_IDX, draw_stub, sizeof draw_stub);
+    emit_op(&cb2, OP_END, NULL, 0);
+
+    /* Test without flush_end first to verify PC.on == 1 and synced PC.nops on OP_END at depth == d0. */
+    g_par_max_ops = 256;
+    g_par_slice_size = 2;
+    g_par_indirect_on = 1;
+    g_par_inline_binds = 1;
+    vk_dump_armed = 0;
+
+    VkExec init_ex;
+    VkTexImage zimg;
+    float cam_data[64];
+    for (int i = 0; i < 64; i++) cam_data[i] = (float)(i + 1);
+    memset(&init_ex, 0, sizeof init_ex);
+    memset(&zimg, 0, sizeof zimg);
+    memset(&S, 0, sizeof S);
+    state = 1; g_fsr_wanted = 0; g_dlss_wanted = 1;
+    J.w = 1920; J.h = 1080; J.frame = 99;
+    zimg.image = (VkImage)(uintptr_t)0x9000;
+    init_ex.color[0].image = (VkImage)(uintptr_t)0x8000;
+    init_ex.depth.image = zimg.image;
+    init_ex.depth.img = &zimg;
+    init_ex.depth.aspect = VK_IMAGE_ASPECT_DEPTH_BIT;
+    init_ex.depth.width = 1920; init_ex.depth.height = 1080; init_ex.depth.samples = 1;
+    init_ex.pass_serial = 55;
+    g_usnap_addr = 0x60000;
+    g_usnap_ptr = cam_data;
+
+    static RunTrace fast;
+    const op_hdr *streams[2] = {opbuf_first(&cb1), opbuf_first(&cb2)};
+    compare_scenario(streams, 2, &init_ex, 1, 0, &fast);
+    assert(fast.pc_on == 1);
+    assert(fast.pc_draws == 3);
+    assert(fast.pc_nops == 4);
+    assert(fast.pc_dlss_done == 1);
+
+    /* Also test non-X context (use_X=0), inline_binds=0, and vk_dump_armed=1. */
+    g_par_inline_binds = 0;
+    g_dlss_wanted = 0;
+    compare_scenario(streams, 2, &init_ex, 0, 1, &fast);
+    assert(fast.nflush == 1 && fast.flushes[0].draws == 3);
+
+    vk_dump_armed = 1;
+    g_par_inline_binds = 1;
+    compare_scenario(streams, 1, &init_ex, 1, 1, &fast);
+    assert(fast.nflush == 2 && fast.flushes[0].draws == 0 && fast.flushes[1].draws == 0);
+    vk_dump_armed = 0;
+}
+
 int main(void) {
     test_pass_snap();
     test_slice_snap_roundtrip_and_shrink();
     test_par_bind_op();
     test_dlss_latch();
+    test_par_collect_walk_nested_calls_jumps_and_slices();
+    test_par_collect_walk_mid_call_exits_and_unwind();
+    test_par_collect_walk_max_ops_and_indirect_stop();
+    test_par_collect_walk_op_end_across_cmdbufs_and_modes();
     puts("par_collect_test: ok");
     return 0;
 }
@@ -420,7 +1156,7 @@ def main():
     vk_exec_src = (args.source_root / 'runtime/vk_exec.c').read_text()
     vk_dlss_src = (args.source_root / 'runtime/vk_dlss.c').read_text()
 
-    vk_exec_parts = [
+    vk_exec_snap_parts = [
         extract_typedef(vk_exec_src, 'ParPassSnap'),
         extract_typedef(vk_exec_src, 'ParSnap'),
         extract_function(vk_exec_src, 'static void par_pass_take('),
@@ -430,10 +1166,17 @@ def main():
         extract_function(vk_exec_src, 'static void par_snap_load('),
         extract_function(vk_exec_src, 'static inline void par_bind_op('),
     ]
+    vk_exec_walk_parts = [
+        extract_function(vk_exec_src, 'static int state_op('),
+        extract_function(vk_exec_src, 'static int par_run_op('),
+        extract_function(vk_exec_src, 'static int par_take('),
+        extract_function(vk_exec_src, 'static const op_hdr *par_collect_walk('),
+    ]
     vk_dlss_part = extract_function(vk_dlss_src, 'int vk_dlss_scene_draw(')
 
     code = (HARNESS
-            .replace('/* VK_EXEC_EXTRACT */', '\n\n'.join(vk_exec_parts))
+            .replace('/* VK_EXEC_SNAP_EXTRACT */', '\n\n'.join(vk_exec_snap_parts))
+            .replace('/* VK_EXEC_WALK_EXTRACT */', '\n\n'.join(vk_exec_walk_parts))
             .replace('/* VK_DLSS_EXTRACT */', vk_dlss_part))
 
     inc = [

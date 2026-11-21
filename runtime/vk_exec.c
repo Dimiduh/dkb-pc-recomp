@@ -3134,6 +3134,122 @@ void vk_exec_lookahead(VkExec *ex) {
     }
 }
 
+static void walk(VkExec *ex, const op_hdr *h, int depth);
+static int par_skip_start;   // stop op after a mid-OP_CALL flush in par_collect_walk: replay it unsliced, as walk() does
+
+// Iterative single-switch collection loop while PC.on && !P.next: handles OP_BEGIN, OP_JUMP and OP_CALL in-loop using a
+// local return stack instead of recursing walk() on every call, fusing par_take and par_bind_op into one switch.
+// Returns the op at which collection stopped (at d0: *resumed = 0, PC.on == 1 if OP_END else flushed; when stopped
+// mid-OP_CALL with depth > d0: flushes, unwinds remaining callee ops via walk(), and returns the next op at d0 with
+// *resumed = 1).
+static const op_hdr *par_collect_walk(VkExec *ex, const op_hdr *h, int d0, int *resumed) {
+    int depth = d0, nops = PC.nops;
+    const op_hdr *ret[CALL_DEPTH];
+    for (;;) {
+        if (h->size < sizeof *h || (h->size & 7) || h->op >= OP_COUNT_)
+            rt_fatal("vk: corrupt command record at %p: op %u size %u", (const void *)h, h->op, h->size);
+        const void *a = nvn_op_payload(h);
+        switch (h->op) {
+        case OP_BEGIN:
+            h = nvn_op_next(h);
+            continue;
+        case OP_JUMP:
+            h = (const op_hdr *)(uintptr_t)((const p_jump *)a)->target;
+            continue;
+        case OP_CALL:
+            if (depth >= CALL_DEPTH) rt_fatal("vk: command buffer calls nested deeper than %d", CALL_DEPTH);
+            ret[depth++] = nvn_op_next(h);
+            h = nvn_op_first(((const p_jump *)a)->target);
+            continue;
+        case OP_END:
+            if (depth > d0) {
+                h = ret[--depth];
+                continue;
+            }
+            PC.nops = nops;
+            if (ex == &X) walk_at = h, walk_depth = d0;
+            *resumed = 0;
+            return h;
+        case OP_SET_RT:
+            if (nops < PAR_MAX_OPS && !vk_dump_armed && !memcmp(&ex->rt, a, sizeof ex->rt)) {
+                h = nvn_op_next(h);
+                continue;
+            }
+            goto stop;
+        case OP_WAIT_SYNC:
+            if (nops < PAR_MAX_OPS && !vk_dump_armed) {
+                h = nvn_op_next(h);
+                continue;
+            }
+            goto stop;
+        case OP_VIEWPORTS: case OP_SCISSOR: case OP_DEPTH_RANGE: case OP_STENCIL: case OP_POLY_OFFSET:
+        case OP_BLEND_COLOR: case OP_DEPTH_CLAMP: case OP_RASTER_DISCARD: case OP_PRIM_RESTART:
+        case OP_COPY_STRIDE: case OP_SET_TEX_POOL: case OP_SET_SAMP_POOL:
+            if (nops == PAR_MAX_OPS || vk_dump_armed) goto stop;
+            state_op(ex, h->op, a);
+            PC.ops[nops++] = h;
+            h = nvn_op_next(h);
+            continue;
+        case OP_BIND_PROGRAM: case OP_BIND_STATE: case OP_BIND_VATTR: case OP_BIND_VSTREAM: case OP_BIND_VBUF:
+        case OP_BIND_UBO: case OP_BIND_SSBO: case OP_BIND_TEX: case OP_BIND_SAMP: case OP_BIND_IMG: case OP_PUSH_CONST:
+            if (nops == PAR_MAX_OPS || vk_dump_armed) goto stop;
+            if (PC.inline_binds) par_bind_op(ex, h->op, a);
+            else vk_exec_op_draw(ex, h->op, a);
+            PC.ops[nops++] = h;
+            h = nvn_op_next(h);
+            continue;
+        case OP_DRAW: case OP_DRAW_IDX: case OP_DRAW_IDX_IND:
+            if (nops == PAR_MAX_OPS || vk_dump_armed || (h->op == OP_DRAW_IDX_IND && !par_indirect())) goto stop;
+            if (PC.slice_draws >= PC.slice_size && PC.nslices < PAR_MAX_SLICES) {
+                PC.nops = nops;
+                if (PC.nslices > PC.s0) par_publish();
+                int i = PC.nslices++;
+                par_snap_take(&PC.snap[i], ex);
+                PC.start[i] = nops;
+                PC.soq[i] = (uint8_t)PC.oq, PC.soqf[i] = PC.oq_flags, PC.supd[i] = (uint8_t)PC.upd;
+                PC.snote[i] = (uint8_t)vk_sync_noting();
+                PC.stag[i] = wb_tag_walk;
+                pss0[i] = (uint16_t)PC.s0;
+                __atomic_store_n(&pdone[i], 0, __ATOMIC_RELAXED);
+                PC.slice_draws = 0;
+                PC.slice_size = par_size();
+            }
+            PC.slice_draws++, PC.draws++;
+            vk_exec_frame.draws_seen++;
+            draws_total++, pass_draws++;
+            if (!PC.dlss_done && ex->depth.image && vk_temporal_wanted())
+                PC.dlss_done = (uint8_t)vk_dlss_scene_draw(ex);
+            PC.ops[nops++] = h;
+            h = nvn_op_next(h);
+            continue;
+        default:
+            goto stop;
+        }
+    }
+stop:
+    PC.nops = nops;
+    par_end_op[h->op]++;
+    par_flush(ex);
+    if (depth == d0) {
+        if (ex == &X) walk_at = h, walk_depth = d0;
+        *resumed = 0;
+        return h;
+    }
+    if (ex == &X) {
+        for (int k = d0; k < depth; k++) walk_ret[k] = ret[k];
+        walk_at = h, walk_depth = depth;
+    }
+    par_skip_start = 1;
+    while (depth > d0) {
+        walk(ex, h, depth);
+        if (pd_n) par_settle_ready(ex);
+        if (split_draws >= split_n) maybe_split(ex);
+        h = ret[--depth];
+    }
+    *resumed = 1;
+    return h;
+}
+
 static void walk(VkExec *ex, const op_hdr *h, int depth) {
     for (;;) {
         while (h == P.next && !depth) h = par_step(ex, h);
@@ -3141,7 +3257,14 @@ static void walk(VkExec *ex, const op_hdr *h, int depth) {
         if (h->size < sizeof *h || (h->size & 7) || h->op >= OP_COUNT_)
             rt_fatal("vk: corrupt command record at %p: op %u size %u", (const void *)h, h->op, h->size);
         const void *a = nvn_op_payload(h);
-        if (h->op != OP_END && h->op != OP_BEGIN && h->op != OP_JUMP && h->op != OP_CALL) {
+        int skip_par = par_skip_start;
+        par_skip_start = 0;
+        if (PC.on && !P.next && h->op != OP_END) {
+            int res = 0;
+            h = par_collect_walk(ex, h, depth, &res);
+            if (res) continue;
+            a = nvn_op_payload(h);
+        } else if (h->op != OP_END && h->op != OP_BEGIN && h->op != OP_JUMP && h->op != OP_CALL) {
             if (PC.on) {
                 if (par_take(ex, h, a)) {
                     if (par_run_op(h->op) == 2) draws_total++, pass_draws++;
@@ -3150,10 +3273,20 @@ static void walk(VkExec *ex, const op_hdr *h, int depth) {
                 }
                 par_end_op[h->op]++;
                 par_flush(ex);
-            } else if (par_run_op(h->op) == 2 && par_start(ex) && par_take(ex, h, a)) {
-                draws_total++, pass_draws++;
-                h = nvn_op_next(h);
-                continue;
+            } else if (!skip_par && par_run_op(h->op) == 2 && par_start(ex)) {
+                if (!P.next) {
+                    int res = 0;
+                    h = par_collect_walk(ex, h, depth, &res);
+                    if (res) continue;
+                    a = nvn_op_payload(h);
+                } else if (par_take(ex, h, a)) {
+                    draws_total++, pass_draws++;
+                    h = nvn_op_next(h);
+                    continue;
+                } else {
+                    par_end_op[h->op]++;
+                    par_flush(ex);
+                }
             }
         }
         if (ex == &X && !ex->in_pass)   // TOTK_PASS_GPU: the GPU work of ops outside passes, by op
