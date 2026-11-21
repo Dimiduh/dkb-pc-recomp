@@ -2,7 +2,7 @@
 
 Settings for running Donkey Kong Bananza on GPUs with 4 GB of VRAM and gaming laptops (for example an RTX 3050 Ti
 Laptop, GTX 1650 or GTX 1050 Ti) with 6 to 8-core CPUs. The settings go in `dkb.ini` next to `dkb.exe`;
-`totk.ini.example` describes every key and its default.
+`dkb.ini.example` describes every key and its default.
 
 ## The 4 GB VRAM limit
 

@@ -2,7 +2,7 @@
 
 Bananza 1.0.0 can adjust game timing to measured frame duration. This is
 experimental and off by default. In **Display → Frame rate**, enable **Allow higher frame rates**
-and restart once. The same setting is `DKB_REALTIME=1` (or `TOTK_REALTIME=1`)
+and restart once. The same setting is `DKB_REALTIME=1` (or `DKB_REALTIME=1`)
 in the environment, or `realtime = 1` in `dkb.ini`.
 With it enabled, the frame rate limit, including **Monitor refresh**,
 applies cap changes without restarting. The default cap remains 60 FPS. TotK

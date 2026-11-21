@@ -50,8 +50,8 @@ a[0x80] and up generic), so Ryujinx's Maxwell mapping applies.
 
 `nvnProgramSetShaders` → `runtime/nvn2_lower.cpp` → Eglantine's Ampere-to-Maxwell lowering
 (`runtime/third_party/eglantine/`) → Maxwell code plus a synthetic NVN 1 control section → TotK Recomp's translator
-(`totk_xlate`, Ryujinx's shader translator with the patches in `tools/xlate/patches/`) → SPIR-V. Offline, the same path
-runs with `tools/dkb_lower_test.cpp` and `totk_xlate jobs.json`.
+(`dkb_xlate`, Ryujinx's shader translator with the patches in `tools/xlate/patches/`) → SPIR-V. Offline, the same path
+runs with `tools/dkb_lower_test.cpp` and `dkb_xlate jobs.json`.
 
 Fixes on top of Eglantine are marked "DKB Recomp" in its files. The ones that mattered most:
 
@@ -90,7 +90,7 @@ the separate `DKB_SHADER_DUMP` option.
 Replay one packet without the game or GPU:
 
 ```text
-python tools/replay_shader_failure.py build/shader-failures/<capture>/<key>.request.json --translator build/xlate/totk_xlate.exe --out build/shader-replay
+python tools/replay_shader_failure.py build/shader-failures/<capture>/<key>.request.json --translator build/xlate/dkb_xlate.exe --out build/shader-replay
 ```
 
 The tool sets `DMSH_STACK=1` for the translator child and retains its reply and stack output in `reply.txt` and

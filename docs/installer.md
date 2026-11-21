@@ -69,7 +69,7 @@ the first missing file and names the path. It needs a folder of loose files, not
 without folders keeps the choice; giving the folders again without the option packs the copy and removes the key.
 
 The shader translator is reused when its `.id` matches the current translator sources. Pass `--translator
-<path>/totk_xlate.exe` to choose a prebuilt translator, keeping `totk_xlate.id` beside it. Otherwise the installer
+<path>/dkb_xlate.exe` to choose a prebuilt translator, keeping `dkb_xlate.id` beside it. Otherwise the installer
 builds it with `tools/build_xlate.py` in its owned temporary folder. That path needs the .NET 10 SDK and, on Windows,
 the Visual Studio C++ build tools and Windows SDK for NativeAOT. `--dotnet <portable-sdk>/dotnet.exe` selects a local
 SDK; the checkout's `toolchain/dotnet` and PATH are also checked. These settings affect child processes only.
@@ -120,7 +120,7 @@ The Bananza steps are:
    remove only owned staging/build directories. Logs remain in the temporary folder. The setup itself does not start
    the game; the window's finish screen has a Play button that does, once the folder checks out as finished.
 
-The portable output contains `dkb.exe`, its runtime DLLs, `totk_xlate.exe` and `.id`, `exefs/`, packed `romfs/`,
+The portable output contains `dkb.exe`, its runtime DLLs, `dkb_xlate.exe` and `.id`, `exefs/`, packed `romfs/`,
 `romfs-index.bin`, `dkb.ini`, `dkb-install.json`, the `shader-cache/` folder of step 6, and twelve
 `romfs-patches-<width>x<height>[-hud-edges]/` folders. An existing `totk.ini` is migrated to `dkb.ini`.
 Saves and further shader caches are created beside the executable when it runs. Source dumps stay untouched.
@@ -325,17 +325,17 @@ holds only the game; the installer and its tools stay outside it.
    - their `prod.keys`;
    - the game language and the install folder.
 3. Waits for the setup, one time. The window shows each step and its progress.
-4. Plays `totk.exe` from the install folder. The installer and the source NSP or XCI can be deleted.
+4. Plays `dkb.exe` from the install folder. The installer and the source NSP or XCI can be deleted.
 
 The install folder (`main.c` `portable_paths()` reads this layout; it stays portable):
 
 ```
 <install folder>/
-  totk.exe, SDL3.dll, libopus-0.dll, totk_xlate.exe
-  totk.ini                       language; the other keys as commented defaults (totk.ini.example)
+  dkb.exe, SDL3.dll, libopus-0.dll, dkb_xlate.exe
+  dkb.ini                       language; the other keys as commented defaults (dkb.ini.example)
   exefs/, romfs/                 extracted from the player's files
   profile/                       saves
-  logs/                          totk.log of the last run, totk.1.log to totk.4.log of the runs before it
+  logs/                          dkb.log of the last run, dkb.1.log to dkb.4.log of the runs before it
   shader and pipeline caches     prepared by the setup; shader-cache/shader-cache.pack holds the translations
   totk-install.json              what built this folder: release version, input hashes, finished steps
 ```
@@ -343,7 +343,7 @@ The install folder (`main.c` `portable_paths()` reads this layout; it stays port
 ## Updating the port
 
 The player runs a newer installer on the same folder. It reads `totk-install.json`, keeps `romfs/`, `exefs/`,
-`profile/` and `totk.ini` after checking their hashes, rebuilds `totk.exe` and re-prepares the shaders. A newer
+`profile/` and `dkb.ini` after checking their hashes, rebuilds `dkb.exe` and re-prepares the shaders. A newer
 release that changes nothing game-derived skips the rebuild.
 
 Given an update file other than the recorded one (1.2.1, then 1.4.3), the installer extracts and builds again from it and
@@ -361,10 +361,10 @@ keeps `profile/`. Saves carry over both ways: 1.4.3 converts a 1.2.1 save on loa
    to the installer.
 4. **Compile** the generated C, `modules.c`, `romfs.c`, `patches.c` and `ov_zstd.c` (they bake the per-install layout, RomFS
    hashes and the game version's patch page) and link
-   them with the prebuilt runtime library into `totk.exe` (`build_game.py --runtime-lib`; about 3 min on 24 cores).
+   them with the prebuilt runtime library into `dkb.exe` (`build_game.py --runtime-lib`; about 3 min on 24 cores).
 5. **Prepare** the RomFS patches and the shaders (`tools/make_romfs_patches.py`, `tools/prepare_shaders.py`,
-   `totk.exe --prepare-shaders`) in the install folder, then fold the shader cache's loose files (four per shader, about
-   117,000) into `shader-cache/shader-cache.pack` (`tools/pack_shader_cache.py`). totk.exe reads the pack first and
+   `dkb.exe --prepare-shaders`) in the install folder, then fold the shader cache's loose files (four per shader, about
+   117,000) into `shader-cache/shader-cache.pack` (`tools/pack_shader_cache.py`). dkb.exe reads the pack first and
    writes the translations it makes in play as loose files; running the tool again with the game closed folds those in.
    The patches are written twice: `romfs-patches` and `romfs-patches-xbox` (`--xbox-prompts`, the A/B and X/Y prompts
    swapped for `pad_layout = xbox_prompts`).
@@ -412,17 +412,17 @@ installer/            the installer: steps, CLI, window, en/ru text catalog
 python/               Python 3.14.9 embeddable + numpy, lz4, cryptography, cffi, pycparser (+ tkinter for the window)
 recomp/, tools/       the lifter and the build, extraction and shader scripts the steps run (copied from the repo)
 llvm/                 llvm-mingw, x86_64-only subset (Apache-2.0 with LLVM exception; mingw-w64 parts permissive)
-runtime/              libtotkrt.a and the headers the generated code and modules.c/romfs.c/patches.c include
-bin/                  totk_xlate.exe, hactool.exe, SDL3.dll, libopus-0.dll, ninja.exe
+runtime/              libdkbrt.a and the headers the generated code and modules.c/romfs.c/patches.c include
+bin/                  dkb_xlate.exe, hactool.exe, SDL3.dll, libopus-0.dll, ninja.exe
 data/                 shader_list.tsv (MacNativeGames, MIT)
 THIRD_PARTY_NOTICES.md
 LICENSE, LICENSE-MIT  the project's terms (GPL-3.0-or-later; MIT for the files that came from TotK Recomp)
-totk.ini.example, VERSION  the default ini; the release string (the repository's VERSION plus the commit)
+dkb.ini.example, VERSION  the default ini; the release string (the repository's VERSION plus the commit)
 ```
 
 `make_release.py --game dkb` makes the Bananza folder (`DKB-Setup-<version>-windows.zip` with `--zip`) from the
 same layout, with these differences: the launcher is `DKB-Setup.exe` (its two messages are the `dkb.launcher.*` ids);
-`runtime/` holds every runtime source instead of `libtotkrt.a`, because the installer compiles the whole runtime at
+`runtime/` holds every runtime source instead of `libdkbrt.a`, because the installer compiles the whole runtime at
 install time; `bin/` has no `hactool.exe` (Bananza reads plain ExeFS and RomFS folders or a `.nup`); `tools/` adds
 `build_xlate.py`, `dkb_pack_romfs.py`, `dkb_shader_census.py`, `extract_nup.py`, `vendor/ryujinx` and `xlate` (the translator is built
 at install); the lifted tree is `dkb100` instead of `v121`/`v143`.
@@ -471,26 +471,26 @@ before Python starts; `./setup.sh --check` in a terminal names it.
 `tools/make_release_linux.py` builds the same setup for Linux and packs it as `TotK-Setup-x86_64.AppImage` (the static
 type-2 runtime: no libfuse2 needed on the host). The player makes it executable and starts it; on a Steam Deck, from
 Desktop Mode. Building the release also needs `make` and `pkg-config`. The bundled Tcl/Tk 9.0.4 is rebuilt with
-Xft against the sniper sysroot so Russian text uses system TrueType fonts. The setup builds the game into the folder they pick, as on Windows, and the game is `totk` there with
+Xft against the sniper sysroot so Russian text uses system TrueType fonts. The setup builds the game into the folder they pick, as on Windows, and the game is `dkb` there with
 `libSDL3.so.0` beside it. The folder inside the AppImage:
 
 The same script with `--game dkb` builds the Bananza folder (`DKB-Setup-x86_64.AppImage`): the same `python/`, `llvm/`
-and sysroot, no hactool, `runtime/libtotkrt.a` built from `generated/dkb100`, and the Bananza installer, which links that
+and sysroot, no hactool, `runtime/libdkbrt.a` built from `generated/dkb100`, and the Bananza installer, which links that
 library instead of compiling `runtime/` from source. It needs a lifted game (or `--stub`, which builds the library
 against `tools/ci/stub/dkb100`) and .NET 10 at pack time. The release workflow (`.github/workflows/dkb-release.yml`)
-builds it with `--stub` and publishes it with a `.tar.gz` of the same folder (`--tarball`); the AppImage entry is `python/bin/python3 -m installer.gui` and `--check` and `--prove` apply as above.
+builds it with `--stub` and publishes only the AppImage (`--tarball` still packs the folder as a `.tar.gz`, but the release no longer uploads it); the AppImage entry is `python/bin/python3 -m installer.gui` and `--check` and `--prove` apply as above.
 
 ```
 AppRun                starts python/bin/python3 -m installer.gui (no bytecode written into the read-only mount)
 totk-setup.desktop, totk-setup.png
-installer/, recomp/, tools/, data/, licenses/, THIRD_PARTY_NOTICES.md, totk.ini.example, VERSION   as on Windows
+installer/, recomp/, tools/, data/, licenses/, THIRD_PARTY_NOTICES.md, dkb.ini.example, VERSION   as on Windows
 python/               python-build-standalone 3.14 (with tkinter) + the installer's packages; a .pth puts the folder,
                       tools/ and recomp/ on sys.path
 llvm/                 LLVM 23 (clang, lld, llvm-ar) and llvm/sysroot: the files of the Steam Runtime 3 "sniper" SDK the
                       game's compile and link read (about 130 files)
-runtime/              libtotkrt.a, headers, the install-side sources, totk.png; deps/ with the Vulkan headers, VMA and a
+runtime/              libdkbrt.a, headers, the install-side sources, totk.png; deps/ with the Vulkan headers, VMA and a
                       static zstd
-bin/                  totk_xlate, hactool, ninja, libSDL3.so.0
+bin/                  dkb_xlate, hactool, ninja, libSDL3.so.0
 ```
 
 - What we compile is built against the sniper sysroot (glibc 2.31): the game, hostcheck, hactool and the translator
@@ -503,7 +503,7 @@ bin/                  totk_xlate, hactool, ninja, libSDL3.so.0
   `.dkb-setup` inside the install folder (AppImage, #402; a `--temp` inside the install folder is still refused), or
   `build/install-temp` in a source package. The AppImage is mounted
   read-only, and a Steam Deck's `/home` is often too full for the generated C while the game goes to the SD card.
-- The game keeps Mesa's shader cache in `mesa-cache` beside `totk` unless `MESA_SHADER_CACHE_DIR` is set, for the
+- The game keeps Mesa's shader cache in `mesa-cache` beside `dkb` unless `MESA_SHADER_CACHE_DIR` is set, for the
   same reason: RADV fills its default folder in `~/.cache` up to 1 GB. The game raises that cap to 10 GiB
   (`MESA_SHADER_CACHE_MAX_SIZE`, and `__GL_SHADER_DISK_CACHE_SIZE` for NVIDIA's driver) unless the variable is already
   set, so that the stage libraries the setup warmed are not evicted.
@@ -522,7 +522,7 @@ bin/                  totk_xlate, hactool, ninja, libSDL3.so.0
   ...`), which prints one JSON progress event per line. Tests and CI use the CLI.
 - Paths may hold any Unicode characters (a Cyrillic user name puts the temp and install folders under it). Every exe
   the setup runs or builds reads its arguments and paths as UTF-8 through an `activeCodePage` manifest: hactool
-  (our patch, [building.md](building.md)), totk.exe (`runtime/totk.rc`), ninja (upstream). The Python steps write
+  (our patch, [building.md](building.md)), dkb.exe (`runtime/dkb.rc`), ninja (upstream). The Python steps write
   their files and logs as UTF-8, and `build_game.py` quotes paths with spaces on its Ninja command lines.
 - A game file whose data fails its hash checks or ends early stops the setup with `check.input_damaged`, which names
   the file and asks to copy it again (`extract.DamagedFile`). A failed merge checks the base Program NCA alone to tell
