@@ -100,6 +100,11 @@ static const char *const text_en[UI_TEXT_COUNT] = {
                                   "a frame it cannot make gets the built-in one.",
     [UI_MENU_FRAME_GEN_BUILTIN] = "Built-in", [UI_MENU_FRAME_GEN_FSR3] = "AMD FSR 3.1",
     [UI_MENU_FRAME_GEN_BY_NEEDS] = "needs DLSS, FSR 3.1 or FSR 4 with the 3D below the output size",
+    [UI_MENU_MIRROR_BUDGET] = "Mirror memory limit",
+    [UI_MENU_MIRROR_BUDGET_DESC] = "A ceiling on the video memory the copies of game memory (GPU memory mode: Mirror) take together, so that they leave room for textures on a small card. "
+                                   "Automatic allows a quarter of the card, at most 3 GiB, and an eighth on a card of 4.5 GiB or less. "
+                                   "Memory refused a copy is read by the GPU from system memory instead. Try it when the game slows down after a while on a card with 8 GB or less.",
+    [UI_MENU_MIRROR_BUDGET_NONE] = "No limit", [UI_MENU_FMT_MIB] = "%s MiB",
     [UI_MENU_GPU] = "Graphics card", [UI_MENU_GPU_DESC] = "Choose which graphics card runs the game. Use Automatic unless you need to select a specific card.",
     [UI_MENU_GPU_AUTO] = "Automatic",
     [UI_MENU_PERF_OVERLAY] = "Performance overlay",
@@ -530,6 +535,11 @@ static const char *const text_ru[UI_TEXT_COUNT] = {
                                   "кадр, который он не может сделать, получается встроенным способом.",
     [UI_MENU_FRAME_GEN_BUILTIN] = "Встроенный", [UI_MENU_FRAME_GEN_FSR3] = "AMD FSR 3.1",
     [UI_MENU_FRAME_GEN_BY_NEEDS] = "нужен DLSS, FSR 3.1 или FSR 4 и 3D ниже выходного разрешения",
+    [UI_MENU_MIRROR_BUDGET] = "Предел памяти зеркал",
+    [UI_MENU_MIRROR_BUDGET_DESC] = "Ограничивает видеопамять, которую занимают все копии памяти игры (режим памяти GPU «Зеркало»), чтобы на небольшой видеокарте осталось место для текстур. "
+                                   "«Автоматически» — четверть памяти видеокарты, но не больше 3 ГиБ, и восьмая часть на карте с 4,5 ГиБ и меньше. "
+                                   "Память, которой отказано в копии, GPU читает из системной памяти. Попробуйте, если на карте с 8 ГБ и меньше игра со временем замедляется.",
+    [UI_MENU_MIRROR_BUDGET_NONE] = "Без предела", [UI_MENU_FMT_MIB] = "%s МиБ",
     [UI_MENU_GPU] = "Видеокарта", [UI_MENU_GPU_DESC] = "Устройство Vulkan, которое рисует игру.",
     [UI_MENU_GPU_AUTO] = "Автоматически",
     [UI_MENU_PERF_OVERLAY] = "Индикатор производительности",

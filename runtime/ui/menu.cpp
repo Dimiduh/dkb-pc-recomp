@@ -1073,6 +1073,21 @@ static void row_set_or_not(const char *key, UiTextId label, UiTextId desc, const
     opt_choice_list(key, label, vals, names, 2, desc, *cfg_value(key) ? 1 : 0);
 }
 
+// TOTK_MIRROR_BUDGET (vk_memory.c mirror_ceiling): unset no ceiling, auto a share of the card, or a number of MiB.
+static void row_mirror_budget(void) {
+    static const char *const vals[] = {"", "auto", "512", "1024", "2048", "3072", "4096"};
+    enum { N = sizeof vals / sizeof *vals };
+    static char mib[N][32];
+    const char *names[N];
+    names[0] = menu_text(UI_MENU_MIRROR_BUDGET_NONE);
+    names[1] = menu_text(UI_MENU_AUTO);
+    for (int i = 2; i < N; i++) {
+        snprintf(mib[i], sizeof mib[i], menu_text(UI_MENU_FMT_MIB), vals[i]);
+        names[i] = mib[i];
+    }
+    opt_choice_list("TOTK_MIRROR_BUDGET", UI_MENU_MIRROR_BUDGET, vals, names, N, UI_MENU_MIRROR_BUDGET_DESC);
+}
+
 static bool validation_layer_present(void) {
     static int have = -1;
     if (have < 0) {
@@ -1144,6 +1159,7 @@ static void tab_advanced(float scale) {
     static const UiTextId mem[] = {UI_MENU_MEMORY_AUTO, UI_MENU_MEMORY_IMPORT, UI_MENU_MEMORY_MIRROR,
                                    UI_MENU_MEMORY_VERIFY};
     opt_choice("TOTK_MEMORY", UI_MENU_MEMORY, mem, 4, UI_MENU_MEMORY_DESC);
+    row_mirror_budget();
     opt_toggle("TOTK_TEX_ALIAS", UI_MENU_TEX_ALIAS, UI_MENU_TEX_ALIAS_DESC);
     opt_slider("TOTK_TEX_VRAM_PRESSURE", UI_MENU_TEX_VRAM_PRESSURE, 0, 100, UI_MENU_TEX_VRAM_PRESSURE_DESC, 1, "%.0f%%");
     opt_toggle("TOTK_ASTC_BC", UI_MENU_ASTC_BC, UI_MENU_ASTC_BC_DESC);
