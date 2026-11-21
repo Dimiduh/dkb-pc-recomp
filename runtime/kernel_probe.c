@@ -1013,6 +1013,71 @@ static void test_redirect_fault(void) {
         CHECK(mismatches == 0, "fault-ret-hook: %llu store mismatches after fault redirect",
               (unsigned long long)mismatches);
     }
+
+    // Mid-chunk first touches (platform/win32.c lazy_commit_mbi): VirtualQuery on a mid-chunk fault reports BaseAddress
+    // at the faulting page, not the chunk start. Verify both 64 KiB and 256 KiB (TOTK_LAZY_CHUNK_KB) chunks commit the
+    // lower reserved pages, preserve a pre-committed read-only page inside the chunk, and mark lazy_map across the
+    // whole chunk.
+    const uint64_t chunks[2] = {0x10000ull, 0x40000ull};
+    const char *orig_kb_s = cfg_get("TOTK_LAZY_CHUNK_KB");
+    uint64_t orig_chunk = (orig_kb_s && *orig_kb_s && strtoull(orig_kb_s, NULL, 10) >= 64)
+                              ? strtoull(orig_kb_s, NULL, 10) << 10
+                              : 0x10000ull;
+    int mid_ok = 1, mid_skipped = 0;
+    for (int ci = 0; ci < 2; ci++) {
+        uint64_t ch = chunks[ci], hb = 0;
+        plat_mem_lazy_chunk(ch);
+        if (mem_set_heap_size(4ull << 20, &hb) != 0 || !hb) {
+            CHECK(0, "lazy-mid-chunk %llu KiB: SetHeapSize failed", (unsigned long long)(ch >> 10));
+            mid_ok = 0;
+            continue;
+        }
+        uint64_t c0 = (hb + ch - 1) & ~(ch - 1), end = 0;
+        if (plat_mem_state(c0, c0 + 0x1000, &end) != PLAT_MEM_RESERVED) {
+            mid_skipped = 1;
+            mem_set_heap_size(0, NULL);
+            break;
+        }
+        // Case 1: all-reserved chunk, first touch on its last page.
+        *(volatile uint64_t *)(uintptr_t)(c0 + ch - 0x1000) = 0x1122334455667788ull;
+        int st0 = plat_mem_state(c0, c0 + ch, &end);
+        int known0 = 0;
+        uint64_t run0 = plat_mem_lazy_run(c0, c0 + ch, &known0);
+        int ok0 = st0 == PLAT_PROT_RW && end == c0 + ch && known0 == 1 && run0 == c0 + ch;
+        CHECK(ok0, "lazy-mid-chunk %llu KiB plain: state=%d end=%#llx want=%#llx known=%d run=%#llx",
+              (unsigned long long)(ch >> 10), st0, (unsigned long long)end, (unsigned long long)(c0 + ch), known0,
+              (unsigned long long)run0);
+
+        // Case 2: lower pages reserved, one middle page pre-committed read-only, upper pages reserved; fault on last page.
+        uint64_t c1 = c0 + ch, ro_page = c1 + 0x2000;
+        int prep = plat_mem_commit(ro_page, 0x1000);
+        if (prep) {
+            *(volatile uint64_t *)(uintptr_t)ro_page = 0xCAFEBABE12345678ull;
+            prep = plat_mem_protect(ro_page, 0x1000, PLAT_PROT_READ);
+        }
+        CHECK(prep, "lazy-mid-chunk %llu KiB: pre-commit read-only page failed", (unsigned long long)(ch >> 10));
+        *(volatile uint64_t *)(uintptr_t)(c1 + ch - 0x1000) = 0xDEADBEEF87654321ull;
+        uint64_t end_lo = 0, end_ro = 0, end_hi = 0;
+        int st_lo = plat_mem_state(c1, ro_page, &end_lo);
+        int st_ro = plat_mem_state(ro_page, ro_page + 0x1000, &end_ro);
+        int st_hi = plat_mem_state(ro_page + 0x1000, c1 + ch, &end_hi);
+        uint64_t ro_val = *(const volatile uint64_t *)(uintptr_t)ro_page;
+        int known1 = 0;
+        uint64_t run1 = plat_mem_lazy_run(c1, c1 + ch, &known1);
+        int ok1 = st_lo == PLAT_PROT_RW && end_lo == ro_page && st_ro == PLAT_PROT_READ && end_ro == ro_page + 0x1000 &&
+                  ro_val == 0xCAFEBABE12345678ull && st_hi == PLAT_PROT_RW && end_hi == c1 + ch && known1 == 1 &&
+                  run1 == c1 + ch;
+        CHECK(ok1,
+              "lazy-mid-chunk %llu KiB mixed: lo=(%d,%#llx) ro=(%d,%#llx,%#llx) hi=(%d,%#llx) known=%d run=%#llx",
+              (unsigned long long)(ch >> 10), st_lo, (unsigned long long)end_lo, st_ro, (unsigned long long)end_ro,
+              (unsigned long long)ro_val, st_hi, (unsigned long long)end_hi, known1, (unsigned long long)run1);
+        plat_mem_protect(ro_page, 0x1000, PLAT_PROT_RW);
+        mid_ok &= ok0 && ok1 && prep;
+        mem_set_heap_size(0, NULL);
+    }
+    plat_mem_lazy_chunk(orig_chunk);
+    printf("  lazy-mid-chunk (64 KiB, 256 KiB; plain + mixed read-only page): %s\n",
+           mid_skipped ? "skipped (TOTK_HEAP_LAZY=0)" : mid_ok ? "ok" : "FAIL");
 }
 #else
 static void test_redirect_fault(void) { printf("  redirect-fault: skipped (x86-64 Windows only)\n"); }

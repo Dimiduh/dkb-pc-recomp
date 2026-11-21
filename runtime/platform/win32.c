@@ -801,38 +801,39 @@ static int lazy_commit_retry(uint64_t x, size_t n) {
     return 1;
 }
 
-// Commits the reserved pages (only those: VirtualAlloc over a committed read-only page would make it writable) around
-// addr, clipped to [lo, hi). When the caller already queried addr and saw mbi->State == MEM_RESERVE, commit the chunk
-// clamped to mbi's reserved run without another VirtualQuery; when mbi is NULL (lazy_fill), walk the 64 KiB chunk by
-// region state. Check-then-commit is not atomic against mem_freeze: a run found reserved here could be committed by
-// another fault and frozen read-only before our VirtualAlloc makes it writable. memory.c freeze_locked refuses a region
-// with a reserved hole in the lazy heap, which closes it for holes that exist at the freeze; the gap left is this
-// narrow window, and the handler takes no lock on purpose.
+// Commits the reserved pages (only those: VirtualAlloc over a committed read-only page would make it writable) in the
+// chunk around addr (lazy_chunk_sz on a fault, 64 KiB from lazy_fill), clipped to [lo, hi). When the caller already
+// queried addr and mbi's reserved run covers the whole clipped chunk (r_lo <= a && r_hi >= e), commit it in one
+// VirtualAlloc without another VirtualQuery; otherwise walk [a, e) by region state so lower reserved pages before a
+// mid-chunk fault are committed too, and mark every whole 64 KiB chunk inside [a, e) in lazy_map. Check-then-commit is
+// not atomic against mem_freeze: a run found reserved here could be committed by another fault and frozen read-only
+// before our VirtualAlloc makes it writable. memory.c freeze_locked refuses a region with a reserved hole in the lazy
+// heap, which closes it for holes that exist at the freeze; the gap left is this narrow window, and the handler takes
+// no lock on purpose.
 static int lazy_commit_mbi(uint64_t addr, uint64_t lo, uint64_t hi, const MEMORY_BASIC_INFORMATION *mbi) {
-    if (mbi && mbi->State == MEM_RESERVE) {
-        uint64_t chunk = __atomic_load_n(&lazy_chunk_sz, __ATOMIC_ACQUIRE);
-        uint64_t a = addr & ~(chunk - 1), e = a + chunk;
-        uint64_t r_lo = (uint64_t)(uintptr_t)mbi->BaseAddress, r_hi = r_lo + mbi->RegionSize;
-        if (a < lo) a = lo;
-        if (a < r_lo) a = r_lo;
-        if (e > hi) e = hi;
-        if (e > r_hi) e = r_hi;
-        if (a >= e || !lazy_commit_retry(a, (size_t)(e - a))) return 0;
-        plat_mem_lazy_mark(a, e);
-        return 1;
-    }
-    uint64_t a = addr & ~0xffffull, e = a + 0x10000;
+    uint64_t chunk = mbi ? __atomic_load_n(&lazy_chunk_sz, __ATOMIC_ACQUIRE) : 0x10000ull;
+    uint64_t a = addr & ~(chunk - 1), e = a + chunk;
     if (a < lo) a = lo;
     if (e > hi) e = hi;
+    if (a >= e) return 0;
+    if (mbi && mbi->State == MEM_RESERVE) {
+        uint64_t r_lo = (uint64_t)(uintptr_t)mbi->BaseAddress, r_hi = r_lo + mbi->RegionSize;
+        if (r_lo <= a && r_hi >= e) {
+            if (!lazy_commit_retry(a, (size_t)(e - a))) return 0;
+            plat_mem_lazy_mark(a, e);
+            return 1;
+        }
+    }
     for (uint64_t x = a, y; x < e; x = y) {
         MEMORY_BASIC_INFORMATION q;
         if (!vm_query(x, &q, PLAT_VM_LAZY)) return 0;
         y = (uint64_t)(uintptr_t)q.BaseAddress + q.RegionSize;
         if (y > e) y = e;
-        if (q.State != MEM_RESERVE) continue;
+        if (q.State == MEM_COMMIT) continue;
+        if (q.State != MEM_RESERVE) return 0;
         if (!lazy_commit_retry(x, (size_t)(y - x))) return 0;
     }
-    if (a == (addr & ~0xffffull) && e == a + 0x10000) plat_mem_lazy_mark(a, e);   // a whole chunk, not one clipped at an end
+    plat_mem_lazy_mark(a, e);
     return 1;
 }
 
@@ -840,8 +841,10 @@ static int lazy_commit_mbi(uint64_t addr, uint64_t lo, uint64_t hi, const MEMORY
 // kernel (ReadProcessMemory fails on a reserved page).
 static void lazy_fill(uint64_t addr, uint64_t n) {
     uint64_t hi = __atomic_load_n(&lazy_end, __ATOMIC_ACQUIRE), lo = __atomic_load_n(&lazy_base, __ATOMIC_RELAXED);
-    if (!n || addr >= hi || addr + n <= lo) return;
-    for (uint64_t c = addr & ~0xffffull; c < addr + n && c < hi; c += 0x10000) lazy_commit_mbi(c < lo ? lo : c, lo, hi, NULL);
+    if (!n || addr >= hi || (addr < lo && n <= lo - addr)) return;
+    uint64_t start = addr < lo ? lo : addr;
+    uint64_t end = n > hi - addr ? hi : addr + n;
+    for (uint64_t c = start & ~0xffffull; c < end; c += 0x10000) lazy_commit_mbi(c < lo ? lo : c, lo, hi, NULL);
 }
 
 // An access violation inside the lazy heap range on a page that is reserved, or that another thread committed

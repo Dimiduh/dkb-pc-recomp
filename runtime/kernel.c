@@ -678,7 +678,7 @@ static uint64_t g_ap_reached, g_ap_lost, g_ap_exc, g_ap_svc, g_ap_unrep, g_ap_fa
 // waiting for ap_try between faults.
 static int g_ap_safe_mode = 1, g_ap_fault_mode = 1;
 #define AP_LOST_NS 2000000ull   // a pending redirect this old is checked for loss
-static int g_ap_lost_log;
+static int g_ap_lost_log, g_ap_unrep_log;
 #define AP_LOST_LOG_N 20
 void kern_ap_stub(void);
 uint64_t kern_ap_rip(void);
@@ -1037,14 +1037,22 @@ static int ap_try(RtThread *w) {
         return AP_RETRY;
     }
     int r = AP_RETRY, in_gen = rip >= g_gen_lo && rip <= g_gen_hi;
+    int lost_log = 0, unrep_log = 0;
+    uint32_t lost_h = 0;
+    int lost_prio = 0;
+    double lost_age_ms = 0;
+    uint64_t lost_old_rip = 0, lost_cur_rip = 0;
     uint64_t to = 0;
     if (stale && in_gen) {
         g_ap_lost++;
         if (g_ap_lost_log < AP_LOST_LOG_N) {
             g_ap_lost_log++;
-            rt_log("kernel: the redirect of %#x p%d sent %.2f ms ago at exe+%#llx was lost (it runs at exe+%#llx)",
-                   o->handle, o->prio, (now - o->ap_sent_at) / 1e6, (unsigned long long)(o->ap_rip - plat_exe_base()),
-                   (unsigned long long)(rip - plat_exe_base()));
+            lost_log = 1;
+            lost_h = o->handle;
+            lost_prio = o->prio;
+            lost_age_ms = (now - o->ap_sent_at) / 1e6;
+            lost_old_rip = o->ap_rip;
+            lost_cur_rip = rip;
         }
         o->ap_pending = 0;
     }
@@ -1059,9 +1067,13 @@ static int ap_try(RtThread *w) {
         g_ap_exc++;
     else if (safe && st == PLAT_INTR_IN_SERVICE)
         g_ap_svc++;
-    else if (safe && st == PLAT_INTR_UNREPORTED)
+    else if (safe && st == PLAT_INTR_UNREPORTED) {
         g_ap_unrep++;
-    else {
+        if (!g_ap_unrep_log) {
+            g_ap_unrep_log = 1;
+            unrep_log = 1;
+        }
+    } else {
         o->ap_rip = rip;
         o->ap_pending = 1;
         o->ap_sent_at = now;
@@ -1074,6 +1086,13 @@ static int ap_try(RtThread *w) {
         g_ap_sent++;
         r = AP_SENT;
     }
+    if (lost_log)
+        rt_log("kernel: the redirect of %#x p%d sent %.2f ms ago at exe+%#llx was lost (it runs at exe+%#llx)",
+               lost_h, lost_prio, lost_age_ms, (unsigned long long)(lost_old_rip - plat_exe_base()),
+               (unsigned long long)(lost_cur_rip - plat_exe_base()));
+    if (unrep_log)
+        rt_log("kernel: asynchronous preemption redirect refused because the OS did not set "
+               "CONTEXT_EXCEPTION_REPORTING (e.g. Wine); set TOTK_AP_SAFE=0 to redirect anyway");
     if (g_cw_on) {   // core wait counters: the cost of a stop and resume, and when the first interruption went out
         uint64_t d = kern_now_ns() - now;
         g_cwf.stops++;
