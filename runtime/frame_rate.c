@@ -158,13 +158,14 @@ static void damped_sum(Cpu *c) {
 }
 
 // Bananza 3.2.0 stick-spin ring update (recomp/patches-dkb458752.txt, site at main+240b2c).
-// f_70002409d0 pushes the stick's angular velocity (s8, deg per 60 Hz tick) into a 64-entry ring ceil(dt) times each
+// f_70002409d0 pushes the stick's angular velocity (s8, deg per 60 Hz tick) into a 90-entry ring ceil(dt) times each
 // frame, loading dt into s0 from [x0]. Above 60 fps (0 < dt < 1), polling faster than the controller's HID report rate
 // creates repeated zero-delta frames that dilute the 15-entry spin average or break the streak after more than two
-// consecutive zero-delta pushes (#477). This hook stands in for ldr s0, [x0]: at dt >= 1 (60 fps or slower) it leaves
-// s0 and s8 as the game sees them; at 0 < dt < 1 it accumulates dt and angle (s8 * dt) per detector instance (x19) and
-// emits one normalized 60 Hz sample (s0 = 1.0, s8 = angle / acc_dt) each time acc_dt reaches 1.0, returning s0 = 0.0
-// on sub-60 Hz frames so the ring loop does not push duplicate samples.
+// consecutive zero-delta pushes. This hook stands in for ldr s0, [x0]: at dt >= 1 (60 fps or slower) it leaves s0 and
+// s8 as the game sees them; at 0 < dt < 1 it integrates each [0, 1.0] 60 Hz bucket per detector instance (x19),
+// returning s0 = 0.0 while next_dt < 1.0 and emitting one normalized sample (s0 = 1.0, out_rate = angle + rate * (1 -
+// prev_dt)) when crossing 1.0 while carrying only rate * (next_dt - 1) into the next bucket so stopping leaves 0.0f
+// remainder without a decay tail.
 #define SPIN_ENTRIES 16
 static struct { uint64_t key, last_ns; float dt, angle; } spin_acc[SPIN_ENTRIES];
 static unsigned spin_next;
@@ -191,17 +192,20 @@ static void spin_step(Cpu *c) {
         spin_acc[i].angle = 0.0f;
     }
     spin_acc[i].last_ns = now;
-    spin_acc[i].dt += dt;
-    spin_acc[i].angle += rate * dt;
-    if (spin_acc[i].dt < 1.0f) {
+    float prev_dt = spin_acc[i].dt;
+    float next_dt = prev_dt + dt;
+    if (next_dt < 1.0f) {
+        spin_acc[i].dt = next_dt;
+        spin_acc[i].angle += rate * dt;
         plat_mutex_unlock(&spin_lock);
         set_f32(c, 0, 0.0f);
         return;
     }
-    float out_rate = spin_acc[i].angle / spin_acc[i].dt;
-    float rem = spin_acc[i].dt - 1.0f;
+    float take = 1.0f - prev_dt;
+    float rem = next_dt - 1.0f;
+    float out_rate = spin_acc[i].angle + rate * take;
     spin_acc[i].dt = rem;
-    spin_acc[i].angle = out_rate * rem;
+    spin_acc[i].angle = rate * rem;
     plat_mutex_unlock(&spin_lock);
     set_f32(c, 8, out_rate);
     set_f32(c, 0, 1.0f);

@@ -55,13 +55,13 @@ static void test_input_pad_stick_sweeps(void) {
     }
 }
 
-/* Faithful model of Bananza 3.2.0 f_70002409d0 (main_0021.c:40171-42032):
- * computes signed angle delta / dt, optionally filters via spin_step(), pushes into 64-entry ring ceil(s0) times,
+/* Faithful model of Bananza 3.2.0 f_70002409d0 (main+0x2409d0):
+ * computes signed angle delta / dt, optionally filters via spin_step(), pushes into 90-entry ring ceil(s0) times,
  * then walks back up to 15 entries stopping on sign reversal or >2 consecutive |v| < 1e-5f samples.
  * Spin trigger (f_700146872c / f_70003bf174): streak >= 15 and |sum / (min(streak, 15) + 1)| >= 15.0.
  */
 typedef struct {
-    float ring[64];
+    float ring[90];
     int head, count;
     float prev_x, prev_y;
     int has_prev;
@@ -101,15 +101,15 @@ static void spin_sim_step(SpinSim *sim, float sx, float sy, float dt, uint64_t d
     int pushes = (int)ceilf(eff_dt);
     for (int p = 0; p < pushes; p++) {
         sim->ring[sim->head] = eff_rate;
-        sim->head = (sim->head + 1) & 63;
-        if (sim->count < 64) sim->count++;
+        sim->head = (sim->head + 1) % 90;
+        if (sim->count < 90) sim->count++;
     }
 
     int streak = 0, zeros = 0;
     float sum = 0.0f, dir = 0.0f;
     int avail = sim->count < 15 ? sim->count : 15;
     for (int k = 0; k < avail; k++) {
-        float v = sim->ring[(sim->head - 1 - k) & 63];
+        float v = sim->ring[((sim->head - 1 - k) % 90 + 90) % 90];
         if (fabsf(v) < 1e-5f) {
             if (++zeros > 2) break;
             streak++;
@@ -243,6 +243,49 @@ static void test_spin_step_cadence_and_invariants(void) {
         spin_step(&c);   // 0.6 + 0.6 = 1.2 >= 1.0 -> emits 10.0 (NOT contaminated by old 50.0!)
         assert(reg_f32(&c, 0) == 1.0f);
         assert(fabsf(reg_f32(&c, 8) - 10.0f) < 1e-4f);
+    }
+
+    /* 5. Exact [0, 1.0] bucket carry leaves no post-stop exponential decay tail. */
+    {
+        float dt_mem = 0.6f;
+        uint64_t key = 0x9990003;
+        g_now_ns += 500000000ull;
+        Cpu c;
+        memset(&c, 0, sizeof c);
+        c.x[0] = (uint64_t)(uintptr_t)&dt_mem;
+        c.x[19] = key;
+
+        /* Frame 1 (rate = 20.0): acc.dt = 0.6 -> s0 = 0.0 */
+        set_f32(&c, 8, 20.0f);
+        spin_step(&c);
+        assert(reg_f32(&c, 0) == 0.0f);
+
+        /* Frame 2 (rate = 20.0): next_dt = 1.2 -> emits 20.0, carries dt = 0.2, angle = 4.0 */
+        g_now_ns += 10000000ull;
+        set_f32(&c, 8, 20.0f);
+        spin_step(&c);
+        assert(reg_f32(&c, 0) == 1.0f);
+        assert(fabsf(reg_f32(&c, 8) - 20.0f) < 1e-4f);
+
+        /* Frame 3 (rate = 0.0): next_dt = 0.8 -> s0 = 0.0 */
+        g_now_ns += 10000000ull;
+        set_f32(&c, 8, 0.0f);
+        spin_step(&c);
+        assert(reg_f32(&c, 0) == 0.0f);
+
+        /* Frame 4 (rate = 0.0): next_dt = 1.4 -> emits 4.0, carries dt = 0.4, angle = 0.0 */
+        g_now_ns += 10000000ull;
+        set_f32(&c, 8, 0.0f);
+        spin_step(&c);
+        assert(reg_f32(&c, 0) == 1.0f);
+        assert(fabsf(reg_f32(&c, 8) - 4.0f) < 1e-4f);
+
+        /* Frame 5 (rate = 0.0): next_dt = 1.0 -> emits exact 0.0 with no decay tail */
+        g_now_ns += 10000000ull;
+        set_f32(&c, 8, 0.0f);
+        spin_step(&c);
+        assert(reg_f32(&c, 0) == 1.0f);
+        assert(fabsf(reg_f32(&c, 8)) == 0.0f);
     }
 }
 
