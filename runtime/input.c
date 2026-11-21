@@ -6,6 +6,7 @@
 // The gamepad also rumbles (input_rumble) and, when it has a gyro and an accelerometer, feeds the six-axis sensor from a
 // thread of its own (input_motion_start). Every SDL call on the gamepad is made under `lock`.
 #include <math.h>
+#include <stdarg.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -24,6 +25,9 @@
 #include "platform/platform.h"
 #include "switch_rumble.h"
 #include "switch2.h"
+#ifdef _WIN32
+#include "third_party/renhdrum/renhdrum_recomp_bridge.h"
+#endif
 
 enum { STICK_MAX = 32767, STICK_DIR = 16384, TRIGGER_ON = 16384, RESCAN_MS = 1000 };
 
@@ -31,6 +35,7 @@ static PlatMutex lock = PLAT_MUTEX_INIT;
 static int state;                    // 0 not started, 1 running, -1 disabled or SDL failed
 static int hd_sent, hd_failed;   // under lock: HD packets went out; a disconnect followed them (#363)
 static SDL_Gamepad *pad;
+static int hd_loaded;                // renhdrum.dll loaded and its version accepted (RenHDrum, Windows only)
 static uint64_t next_scan;
 static unsigned pad_device_seen;
 static InputHoldGate pad_fullscreen_gate;
@@ -516,6 +521,30 @@ int input_pad_automatic(void) {
     return automatic;
 }
 
+#ifdef _WIN32
+// Host services the RenHDrum bridge calls (renhdrum_recomp_bridge.c).
+void hos_log(const char *fmt, ...) {
+    char buf[1024];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(buf, sizeof buf, fmt, ap);
+    va_end(ap);
+    rt_log("%s", buf);
+}
+int64_t hos_now_ns(void) { return (int64_t)plat_now_ns(); }
+int hos_sdl_init(uint32_t subsystems) { return SDL_InitSubSystem(subsystems) ? 1 : 0; }
+
+static void hd_attach(SDL_Gamepad *p) { if (hd_loaded) rh_attach(p); }
+static void hd_detach(SDL_Gamepad *p) { if (hd_loaded) rh_detach(p); }
+// Under lock: RenHDrum plays this pad's vibration (a DualSense, Switch Pro Controller or Xbox pad it claimed), so none of
+// the paths below may drive it as well.
+static int pad_hd_claimed(void) { return hd_loaded && pad && rh_is_active(pad); }
+#else
+static void hd_attach(SDL_Gamepad *p) { (void)p; }
+static void hd_detach(SDL_Gamepad *p) { (void)p; }
+static int pad_hd_claimed(void) { return 0; }
+#endif
+
 static SDL_Gamepad *pad2;
 static int pad2_east_a;
 static uint64_t pad2_next_scan;
@@ -559,6 +588,7 @@ static void scan_pads(void) {
     if (pad) {
         SDL_RumbleGamepad(pad, 0, 0, 0);
         SDL_RumbleGamepadTriggers(pad, 0, 0, 0);
+        hd_detach(pad);
         SDL_CloseGamepad(pad); pad = NULL; sensor_pad = 0; sensor_ok = 0;
         pad_rumble = pad_switch = 0;
         motion_restart(motion_global());
@@ -574,6 +604,7 @@ static void scan_pads(void) {
     }
     pad = next;
     if (!pad) return;
+    hd_attach(pad);
     pad_rumble = SDL_GetBooleanProperty(SDL_GetGamepadProperties(pad), SDL_PROP_GAMEPAD_CAP_RUMBLE_BOOLEAN, false);
     SDL_GamepadType gt = SDL_GetGamepadType(pad);
     // SDL types the Switch 2 controllers (Nintendo, 0x2066 to 0x2073; over USB SDL_hidapi_switch2.c, over Bluetooth
@@ -676,6 +707,16 @@ static void start(void) {
     if (e && !strcmp(e, "none")) { state = -1; rt_log("input: disabled (DKB_INPUT=none)"); return; }
     if (!SDL_Init(SDL_INIT_GAMEPAD)) { state = -1; rt_log("input: SDL gamepad init failed (%s), keyboard only", SDL_GetError()); }
     else state = 1;
+#ifdef _WIN32
+    if (state == 1) {   // before the first scan, so the pad found there is attached
+        if (!strcmp(cfg_value("DKB_RENHDRUM"), "off")) rt_log("input: RenHDrum off (renhdrum = off)");
+        else {
+            rh_set_switch_gen(rt_game_version ? 1 : 2);   // Switch 2 mode for Bananza
+            hd_loaded = rh_load();
+            rt_log(hd_loaded ? "input: RenHDrum loaded (%s)" : "input: RenHDrum not used (%s)", rh_status_line());
+        }
+    }
+#endif
     if (state == 1) test_pad_attach();
     if (state == 1) switch2_start();   // Switch 2 controllers over Bluetooth, as virtual gamepads (DKB_SWITCH2)
     if (state == 1) {
@@ -1087,6 +1128,40 @@ static int pad_s2(void) {
     return state == 1 && pad && switch2_owns(SDL_GetGamepadID(pad));
 }
 
+int input_hd_vibration(int side, float al, float fl, float ah, float fh) {
+#ifdef _WIN32
+    return hd_loaded ? rh_vibration(side, al, fl, ah, fh) : 0;
+#else
+    (void)side; (void)al; (void)fl; (void)ah; (void)fh;
+    return 0;
+#endif
+}
+
+void input_hd_permit(int on) {
+#ifdef _WIN32
+    if (hd_loaded) rh_permit(on);
+#else
+    (void)on;
+#endif
+}
+
+void input_hd_set_enabled(int on) {
+#ifdef _WIN32
+    if (hd_loaded) rh_set_enabled(on);
+#else
+    (void)on;
+#endif
+}
+
+void input_shutdown(void) {
+#ifdef _WIN32
+    plat_mutex_lock(&lock);   // not the crash path: it may stop pads the input thread is using
+    if (hd_loaded) rh_shutdown();
+    hd_loaded = 0;
+    plat_mutex_unlock(&lock);
+#endif
+}
+
 int input_rumble_stream(const float v[2][4]) {
     int ok = 0;
     plat_mutex_lock(&lock);
@@ -1097,7 +1172,7 @@ int input_rumble_stream(const float v[2][4]) {
 
 // Under lock: the open pad takes HD packets (a Switch pad, DKB_RUMBLE_HD not off).
 static int pad_hd(void) {
-    return state == 1 && pad && pad_switch && !hd_failed && strcmp(cfg_value("DKB_RUMBLE_HD"), "off") != 0 && !pad_s2();
+    return state == 1 && pad && pad_switch && !hd_failed && strcmp(cfg_value("DKB_RUMBLE_HD"), "off") != 0 && !pad_s2() && !pad_hd_claimed();
 }
 
 int input_rumble_hd(const float v[2][4], uint32_t ms) {
@@ -1121,7 +1196,7 @@ int input_rumble(uint16_t low, uint16_t high, uint32_t ms) {
     static unsigned seen;
     if (triggers < 0 || seen != cfg_version()) seen = cfg_version(), triggers = input_rumble_triggers_enabled();
     plat_mutex_lock(&lock);
-    if (state == 1 && pad && pad_rumble && !pad_hd() && !pad_s2()) {
+    if (state == 1 && pad && pad_rumble && !pad_hd() && !pad_s2() && !pad_hd_claimed()) {
         ok = SDL_RumbleGamepad(pad, low, high, ms);
         if (triggers) SDL_RumbleGamepadTriggers(pad, high, high, ms);   // unsupported pads return false: ignored
     }

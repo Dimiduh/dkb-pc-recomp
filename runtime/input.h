@@ -118,6 +118,16 @@ int input_rumble_stream(const float v[2][4]);
 uint16_t rumble_motor(float a, float curve, float strength);
 // DKB_RUMBLE_TRIGGERS=1: input_rumble also drives the impulse triggers (Xbox) with the high motor's value.
 int input_rumble_triggers_enabled(void);
+// RenHDrum (third_party/renhdrum, Windows, renhdrum.dll beside the exe; DKB_RENHDRUM=off never loads it): the game's raw
+// vibration value of player 1's side 0 (left) or 1 (right), the permit switch and the master rumble switch go to it for
+// the pads it claims, and input_rumble, input_rumble_hd and input_rumble_stream then leave those pads alone. All no-ops
+// (0) when it is not loaded. Callable from any thread.
+int input_hd_vibration(int side, float al, float fl, float ah, float fh);
+void input_hd_permit(int on);
+void input_hd_set_enabled(int on);
+// Stops RenHDrum's worker threads and zeroes its motors. Call before plat_exit on every normal exit path, not from the
+// crash handler. Idempotent.
+void input_shutdown(void);
 
 // Motion (DKB_MOTION=0 turns it off, live). input_motion_start starts the sensor thread once: every 4 ms it reads the
 // gamepad's gyro and accelerometer (when it has them) and feeds motion_global(). Callable from any thread.

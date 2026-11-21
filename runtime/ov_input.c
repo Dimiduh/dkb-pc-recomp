@@ -250,6 +250,7 @@ static void rumble_cfg(void) {
     rumble_cfg_seen = v;
     rumble_strength = cfg_float("DKB_RUMBLE_STRENGTH", 0, 300) / 100;
     rumble_curve = cfg_float("DKB_RUMBLE_CURVE", 0.2f, 1.5f);
+    input_hd_set_enabled(rumble_strength > 0 && !env_zero("DKB_RUMBLE"));   // the master switch, RenHDrum included
     int trig = input_rumble_triggers_enabled();
     if (!plat_xchg32(&rumble_cfg_logged, 1))
         rt_log("hid: rumble strength %.0f%%, curve %.2f, triggers %s", rumble_strength * 100, rumble_curve, trig ? "on" : "off");
@@ -404,6 +405,7 @@ static void play(int side, const VibrationValue *v) {
         rt_log("hid: first non-zero vibration from the game: %s %.2f@%.0f Hz %.2f@%.0f Hz", side ? "right" : "left",
                (double)c.amp_low, (double)c.freq_low, (double)c.amp_high, (double)c.freq_high);
     uint64_t now = kern_now_ns();
+    if (side < 2) input_hd_vibration(side, c.amp_low, c.freq_low, c.amp_high, c.freq_high);   // player 1, raw values
     plat_mutex_lock(&vib_lock);
     vib_last[side] = c;
     vib_at[side] = now;
@@ -481,6 +483,7 @@ static void ov_vib_permit(Cpu *c) {
     int on = (arg_x(c, 0) & 0xff) != 0;
     plat_mutex_lock(&vib_lock);
     vib_allowed = on;
+    input_hd_permit(on);
     rumble_update(kern_now_ns());
     plat_mutex_unlock(&vib_lock);
     ret_x(c, 0);

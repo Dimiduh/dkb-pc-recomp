@@ -51,7 +51,7 @@ static const char *const known[] = {
     "NVN2_MODE_TRACE", "NVN2_MODE_TRACE_START_MS", "NVN2_MODE_TRACE_DURATION_MS", "ONE_PER_CORE", "OPERATION_MODE", "OUTPUT_RES", "PAD_BACKGROUND", "PAD_DEVICE", "PAD_FULLSCREEN_HOLD", "PAD_LAYOUT", "PAD_PROMPTS", "PAR_COLLECT_WALK", "PAR_DEFER", "PAR_DEFER_DEPTH", "PAR_INDIRECT", "PASS_GPU", "PATCH_OUTPUT", "PATCH_SCENE", "PCACHE_GATE", "PERF_OVERLAY", "PERF_SLOW_GPU_MS", "PERF_SLOW_MS", "PIPELINE_CACHE", "PIPE_MEMO", "PIPE_PREBUILD", "PIPE_SKIP", "PIPE_SYNC", "PIPE_WAIT", "POOL_FINI_WAIT", "POOL_IMPORT_LOG", "POOL_LAZY",
     "PRESENT_HOLD", "PREWARM_XLATE", "PROBE_MOVIE", "PROBE_MOVIE_SHOT", "PROFILE", "PROFILE_CHAINS", "PROFILE_DIR", "PROFILE_FRAMES",
     "PROFILE_MAIN", "PROFILE_RENDER", "PROFILE_REPLAY", "PROFILE_SLOW", "PROFILE_VQ", "PUSH_SKIP", "PUSH_STAGE", "RDOC", "RDOC_DIR", "RDOC_DLL", "REALTIME", "REALTIME_MAX_FPS", "REC_BEGIN", "REC_END", "REC_SUBMIT", "REEXEC",
-    "RENDER_SCALE", "SCENE_RES", "SCHED_HANDOFF", "REPLAY_ASYNC", "REPLAY_HELPERS", "REPLAY_PAR", "REPLAY_THREADS", "CALL_REF", "RESET_BATCH", "RESET_CPU_LIST",
+    "RENDER_SCALE", "RENHDRUM", "SCENE_RES", "SCHED_HANDOFF", "REPLAY_ASYNC", "REPLAY_HELPERS", "REPLAY_PAR", "REPLAY_THREADS", "CALL_REF", "RESET_BATCH", "RESET_CPU_LIST",
     "REPLAY_CHECK", "RESOLVE_CHECK", "ROMFS", "ROMFS_DIR", "ROMFS_INDEX", "ROMFS_MMAP", "ROMFS_MODS", "ROMFS_PATCHES",
     "ROMFS_PROOF_DIR", "ROMFS_VERIFY", "RUMBLE", "RUMBLE_CURVE", "RUMBLE_HD", "RUMBLE_STRENGTH", "RUMBLE_TRIGGERS", "SHADER_CACHE",
     "SHADER_MEMO", "SHARED_FONTS", "SHARPNESS", "SHOTS", "SHOTS_DIR", "SHOTS_FULL", "SKIP_CS", "SKIP_FS", "SKIP_VS", "SMAA", "SPARSE_MIRROR_COPY", "SPEED_PROBE", "STALL_DUMP", "SPIN", "SPIN_HANDOFF_US", "SPLASH", "SPLASH_SHOTS", "SPLASH_TEST", "SPLASH_WATCH", "SPLIT_DRAWS", "SPLIT_US", "STAGED_BLK_CHECK", "STAGED_FETCH_TEST", "STAGED_INJECT", "STAGED_READ_PROBE", "STAGED_WB", "STAMP_BATCH", "STICK_DEADZONE", "SVC_SLOW", "SWITCH2", "SWKBD_ANSWER",
@@ -75,7 +75,7 @@ static const struct { const char *key, *section; } sections[] = {
     {"DEVICE_PROFILE", "display"}, {"ASSUME_FOCUS", "display"}, {"SPLASH", "display"},
     {"MENU_THEME", "menu"}, {"MENU_LANG", "language"}, {"LANG", "language"}, {"OPERATION_MODE", "language"},
     {"VOLUME", "audio"}, {"AUDIO_CHANNELS", "audio"},
-    {"MOTION", "input"}, {"RUMBLE_STRENGTH", "input"}, {"RUMBLE_CURVE", "input"}, {"RUMBLE_TRIGGERS", "input"}, {"RUMBLE_HD", "input"}, {"SWITCH2", "input"}, {"COOP", "input"},
+    {"MOTION", "input"}, {"RUMBLE_STRENGTH", "input"}, {"RUMBLE_CURVE", "input"}, {"RUMBLE_TRIGGERS", "input"}, {"RUMBLE_HD", "input"}, {"RENHDRUM", "input"}, {"SWITCH2", "input"}, {"COOP", "input"},
     {"PAD_BACKGROUND", "input"}, {"PAD_DEVICE", "input"}, {"PAD_FULLSCREEN_HOLD", "input"}, {"PAD_LAYOUT", "input"}, {"PAD_PROMPTS", "input"}, {"STICK_DEADZONE", "input"}, {"MOUSE_CAMERA", "input"}, {"MOUSE_SENS", "input"}, {"INPUT_RECORD", "input"},
     {"BIND_A", "input"}, {"BIND_B", "input"}, {"BIND_X", "input"}, {"BIND_Y", "input"}, {"BIND_LCLICK", "input"},
     {"BIND_RCLICK", "input"}, {"BIND_L", "input"}, {"BIND_R", "input"}, {"BIND_ZL", "input"}, {"BIND_ZR", "input"},
@@ -161,7 +161,7 @@ static const CfgMeta metas[] = {
     // Sound, Controls, Menu
     {"VOLUME", "100", "0..100", LIVE}, {"AUDIO_CHANNELS", "auto", "auto|stereo|5.1", RESTART},
     {"MOTION", "1", "0|1", LIVE}, {"RUMBLE_STRENGTH", "130", "0..300", LIVE}, {"RUMBLE_CURVE", "0.6", "0.2..1.5", LIVE},
-    {"RUMBLE_TRIGGERS", "0", "0|1", LIVE}, {"RUMBLE_HD", "off", "auto|off", LIVE},
+    {"RUMBLE_TRIGGERS", "0", "0|1", LIVE}, {"RUMBLE_HD", "off", "auto|off", LIVE}, {"RENHDRUM", "auto", "auto|off", RESTART},
     {"PAD_LAYOUT", "auto", "auto|nintendo|xbox|xbox_prompts", LIVE},
     {"SWITCH2", "0", "0|1|2", RESTART},   // switch2.c: Switch 2 controllers over Bluetooth LE; 2 also logs each advertising device
     {"COOP", "1", "0|1", LIVE},   // ov_input.c: a second gamepad is player 2 (npad No.2, Pauline)

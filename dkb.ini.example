@@ -324,6 +324,8 @@
 # rumble_triggers = 0
 # HD rumble (Switch Pro Controller / Joy-Con): auto uses it on genuine pads, off (the default) sends plain rumble; several third-party Switch Pro pads broke with it (#363, #383).
 # rumble_hd = off
+# Detailed haptics through RenHDrum (DualSense, Switch Pro, Xbox pads) on Windows: auto uses renhdrum.dll when it sits next to dkb.exe (RenHDrum 0.5), off never loads it.
+# renhdrum = auto
 # Switch 2 controllers (Pro Controller 2, Joy-Con 2) over Bluetooth LE, with HD rumble: 1 on, 0 off, 2 on and logs
 # every advertising Bluetooth device once (for a report when one is not found). Hold Sync on a controller with the game
 # open to pair it with this PC; after that any button reconnects it. Do not pair it in the system's Bluetooth settings.
