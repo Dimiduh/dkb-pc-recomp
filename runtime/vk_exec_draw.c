@@ -5189,6 +5189,9 @@ static int bind_handles(uint64_t *dst, int cap, const p_bind_handles *b) {
     return 1;
 }
 
+// Keep the bind cases below (program, state, vattr/vstream/vbuf, UBO/SSBO/tex/samp/img, push constants) in sync with
+// par_bind_op (runtime/vk_exec.c), which mirrors them inline during slice collection; per-command-buffer dirty bits
+// (such as B.vb_dirty / B.vstr_dirty) are cleared by par_flush -> vk_exec_draw_new_cb.
 static void op_draw_impl(VkExec *ex, uint32_t op, const void *payload) {
     DrawCtx *const dc = DC_OF(ex);
     geometry_context_log(ex, op, payload);
