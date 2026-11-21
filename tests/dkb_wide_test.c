@@ -26,7 +26,7 @@ const char *cfg_value(const char *key) {
     CHECK(!strcmp(key, "DKB_OUTPUT_RES") || !strcmp(key, "DKB_SCENE_RES") || !strcmp(key, "DKB_UPSCALER") ||
           !strcmp(key, "DKB_DLSS_MODE"));
     if (!strcmp(key, "DKB_DLSS_MODE")) return dlss_mode;
-    return !strcmp(key, "DKB_UPSCALER") ? upscaler : key[5] == 'O' ? resolution : scene_res;
+    return !strcmp(key, "DKB_UPSCALER") ? upscaler : key[4] == 'O' ? resolution : scene_res;
 }
 // dkb_native_aa_live reads the settings version to check the Upscaler setting again after a change.
 unsigned cfg_version(void) { return settings_version; }

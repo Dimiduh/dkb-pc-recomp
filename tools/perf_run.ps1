@@ -13,7 +13,7 @@
 
 .PARAMETER Exe
   dkb.exe to run, relative to the repo root (default build\dkb100\dkb.exe, where docs/dkb-testing.md builds it). Its folder's runtime files (exe, DLLs, *.bin, dkb.ini) are copied into
-  the bundle's bin\ folder and the copy runs, so the game's logs land in bin\logs\dkb.log (bin\logs\dkb.log for a TotK build) and the source folder is
+  the bundle's bin\ folder and the copy runs, so the game's logs land in bin\logs\dkb.log and the source folder is
   not written to.
 
 .PARAMETER Exefs

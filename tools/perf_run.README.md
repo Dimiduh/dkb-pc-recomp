@@ -65,7 +65,7 @@ Summarise any bundle again: `.venv\Scripts\python.exe -I tools\perf_evidence.py 
 | `samples.csv` | Every 5 s: AC line, GPU temp, power, SM and memory clock, utilisation, VRAM, throttle mask (`nvidia-smi`), process working set, commit, peak, handles, threads. |
 | `flight/<dump>/frames.tsv` | Per-frame records (flight mode): interval and render-thread waits (pace, fence, drain, pipe, xlate, tex, astc) and counts. |
 | `flight/<dump>/f*.png` | Thumbnails (only with `-Thumbs`). |
-| `bin/logs/dkb.log` | The game log (`bin/logs/dkb.log` for a TotK build). Written here because the runner runs the copy with stderr on the console (see below). |
+| `bin/logs/dkb.log` | The game log. Written here because the runner runs the copy with stderr on the console (see below). |
 | `input-<script>.txt` | The scripted input that was used. |
 | `visit.json` | `visit`, `complete`, `stop`, `exit_code`. |
 | `evidence.txt` / `evidence.json` | Statistics, anatomy of slow frames, and verdicts. |

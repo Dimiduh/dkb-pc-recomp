@@ -27,9 +27,9 @@ class IniDiagnosticsTests(unittest.TestCase):
         # cfg.c: "key =" leaves the setting at its default, it does not reset an earlier line.
         self.assertEqual(perf_evidence.ini_diagnostics('flight = 1\nflight =\n'), ['FLIGHT'])
 
-    def test_dkb_prefix_is_not_a_file_key(self):
-        # cfg.c norm_key strips only DKB_, so DKB_FLIGHT in the file is an unknown key and switches nothing on.
-        self.assertEqual(perf_evidence.ini_diagnostics('DKB_FLIGHT = 1\n'), [])
+    def test_dkb_prefix_is_a_file_key(self):
+        # cfg.c norm_key strips an optional DKB_, so DKB_FLIGHT in the file is the flight setting.
+        self.assertEqual(perf_evidence.ini_diagnostics('DKB_FLIGHT = 1\n'), ['FLIGHT'])
 
     def test_off_values_and_empty_do_not_count(self):
         text = 'flight = 0\ntrace = off\nprofile =\nvk_validation = false\ncpu_branch_evidence = no\n'

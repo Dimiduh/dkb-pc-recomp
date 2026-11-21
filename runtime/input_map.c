@@ -175,7 +175,7 @@ static void build_from_cfg(InputMap *m, int log) {
         char var[32];
         snprintf(var, sizeof var, "DKB_BIND_%s", action_names[a]);
         const char *v = cfg_get(var);
-        if (v && *v && bind_into(m, action_names[a], v) && log) rt_log("input: %s = %s", var + 5, v);
+        if (v && *v && bind_into(m, action_names[a], v) && log) rt_log("input: %s = %s", var + 4, v);
     }
 }
 

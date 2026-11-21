@@ -140,7 +140,7 @@ def run(args):
     out.mkdir(parents=True, exist_ok=True)
     stem = re.sub(r"[^A-Za-z0-9_.-]+", "_", args.label or "run")
     log_path, csv_path = out / (stem + ".log"), out / (stem + "-mem.csv")
-    env = dict(os.environ, DKB_TRACE="perf", DKB_DRAW_PROFILE="1", DKB_DRAW_PROFILE="1")
+    env = dict(os.environ, DKB_TRACE="perf", DKB_DRAW_PROFILE="1")
     if args.script:
         env["DKB_INPUT_SCRIPT"] = args.script
     for kv in args.env:
