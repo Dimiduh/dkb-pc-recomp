@@ -563,6 +563,7 @@ const VkTexImage *vk_texture_get(const tex_t *t);   // created and made current;
 const VkTexImage *vk_texture_get_target(const tex_t *t);   // vk_texture_get for a render target (resolve_target)
 uint64_t vk_texture_takebacks(void);                // non-waiting takebacks so far (for vk_texture_view)
 void vk_texture_view(uint64_t upto);                // held slice: hide takebacks with live_seq >= upto; 0 sees all
+int vk_texture_view_active(void);                   // 1 on a held slice thread with a non-zero view cutoff
 // An ASTC image kept as BC1 made BC3 again and uploaded whole, before texels that may carry alpha are written into it
 // (vk_exec_xfer.c's copies into a decoded ASTC image, WriteTexels). Any other image is left as it is. 1 when the image
 // is BC3 and the copy may go on; 0 when it is a BC1 image whose remake failed, or there is no image at all, since a

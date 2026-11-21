@@ -58,6 +58,7 @@ def main():
                     'vk_mem_shutdown')
     texture_names = ('make_key', 'same_but_swizzle', 'rel_unlink', 'destroy_tex',
                      *(('tex_is_released', 'tex_same_desc', 'takeback_free') if 'static int tex_same_desc(' in texture else ()),
+                     *(('entry_pick_alias',) if 'static Tex *entry_pick_alias(' in texture else ()),
                      'entry_of', 'slot_resolve')
     sync_names = ('claim_slot', 'take_slot', 'vk_sync_split', 'vk_sync_submit')
     extracts = {}
