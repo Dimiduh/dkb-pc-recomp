@@ -141,6 +141,7 @@ void plat_mem_walk(void (*cb)(uint64_t, uint64_t, int, void *), void *arg) { (vo
 uint64_t plat_mem_resident(uint64_t a, uint64_t n) { (void)a; (void)n; return 0; }
 void plat_commit_info(double *p, double *u, double *l) { *p = *u = *l = 0; }
 uint64_t plat_mem_lazy_faults(void) { return 0; }
+void plat_mem_lazy_chunk(uint64_t bytes) { (void)bytes; }
 
 void plat_mem_lazy(uint64_t base, uint64_t size) {
     AcquireSRWLockExclusive(&sim_mem_lock);
