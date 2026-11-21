@@ -77,7 +77,7 @@ static void memory_event(Cpu *c, cmd_t *o, int event, uint64_t min) {
 #define SEG_OWNED(o) ((o)->seg && (o)->seg_tok == SEG_TOK(o))
 // The prefix of a copy and of a recording buffer (see "recording copies" below).
 // ubo (TOTK_USNAP_LIST): a copy's merged uniform ranges (nvn_handle_ubo_list), NULL without; set by take_recording,
-// garbage in a recording buffer. Lists of 1 or 2 ranges live inline in ubo_inl to avoid heap churn on small leaves.
+// NULL in a recording buffer. Lists of 1 or 2 ranges live inline in ubo_inl to avoid heap churn on small leaves.
 typedef union {
     nvn_range_list hdr;
     struct { uint64_t n; nvn_range r[2]; } inl;
@@ -288,6 +288,7 @@ static void copy_block_free(copy_prefix *pf) {
 static uint8_t *rec_buffer(size_t cap, size_t *room) {
     copy_prefix *b = copy_block(sizeof *b + cap);
     b->magic = REC_MAGIC;
+    b->ubo = NULL;
     *room = (size_t)b->block - sizeof *b;
     return (uint8_t *)(b + 1);
 }
@@ -526,7 +527,7 @@ static uint64_t copy_touch(uint64_t handle, uint64_t now, const char *what) {
 // two fifths of the main thread's running time in the Hilltop Layer of Surf Hills (3.2.0, 185 KiB a copy on average).
 // With uniform range lists on (nvn_ubo_lists_on), the check also gathers the copy's normalized uniform bindings (and
 // composes OP_CALL callees' merged lists under TOTK_CALL_REF, deduplicated through a stack-local L1 cache and
-// consecutive-callee skip) into the calling thread's buffer, and the copy keeps their merged list (ubo_list_make). The
+// consecutive-callee skip) into the calling thread's buffer, and the copy keeps their merged list (ubo_list_set). The
 // records are final here and the submit changes no uniform binding (resolve_deferred). If any callee lacks a list, the
 // caller gets NULL and the snapshot walks it (still taking lists for callees that have them).
 #define RECORDING_HANDOVER (32u << 10)

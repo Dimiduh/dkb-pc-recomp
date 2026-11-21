@@ -428,9 +428,41 @@ static void inline_and_lazy_seen_cases(void) {
     CALL(nvnCommandBufferFinalize, UP(&cmd));
 }
 
+// A recycled block from the free cache (blk_free) must have its prefix's ubo pointer cleared before reuse in rec_buffer.
+static void recycled_block_clears_ubo(void) {
+    NVNcommandBuffer cmd = {0};
+    _Alignas(16) uint8_t control[0x4000];
+    begin(&cmd, control, sizeof control);
+    // 2500 uniform binds (~85 KiB) lands in the 128 KiB block class and hands over its recording buffer as the copy.
+    for (size_t i = 0; i < 2500; i++)
+        binds[i] = (Bind){0x60000000ull + (i % 8) * 0x1000, 64};
+    CALL(nvnCommandBufferBeginRecording, UP(&cmd));
+    bind_all(&cmd, binds, 2500);
+    uint64_t seg1 = UP(((const cmd_t *)(const void *)&cmd)->seg);
+    uint64_t h1 = CALL(nvnCommandBufferEndRecording, UP(&cmd));
+    CHECK(h1 == seg1, "recycled-block test hands over the 128 KiB recording buffer");
+    CHECK(nvn_handle_ubo_list(h1) != NULL, "handed-over copy has a non-NULL uniform list before release");
+    // Release the copy so its 128 KiB block returns to the top of the free cache with its prior prefix memory intact.
+    replayed = nvn_submit_count();
+    CALL(nvnCommandBufferAddControlMemory, UP(&cmd), UP(control), sizeof control);
+    // A second handover of the same 128 KiB class calls rec_buffer, popping h1's block from the free cache as cmd.seg.
+    CALL(nvnCommandBufferBeginRecording, UP(&cmd));
+    bind_all(&cmd, binds, 2500);
+    uint64_t seg2 = UP(((const cmd_t *)(const void *)&cmd)->seg);
+    uint64_t h2 = CALL(nvnCommandBufferEndRecording, UP(&cmd));
+    uint64_t recycled = UP(((const cmd_t *)(const void *)&cmd)->seg);
+    CHECK(h2 == seg2, "second recording also hands over its 128 KiB buffer");
+    CHECK(recycled == h1, "rec_buffer pops the just-released 128 KiB block from the free cache");
+    CHECK(nvn_handle_ubo_list(recycled) == NULL, "rec_buffer clears stale ubo pointer on a recycled block");
+    replayed = nvn_submit_count();
+    CALL(nvnCommandBufferAddControlMemory, UP(&cmd), UP(control), sizeof control);
+    CALL(nvnCommandBufferFinalize, UP(&cmd));
+}
+
 int main(void) {
     fixed_list();
     recorded_lists();
+    recycled_block_clears_ubo();
     inline_and_lazy_seen_cases();
     called_lists();
     async_lists();
