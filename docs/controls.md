@@ -229,7 +229,7 @@ A wait is reached once the wait before it held (or at the start); the lines befo
 @30171.8 PLUS 866.7
 ```
 
-For A/B and image tests, `DKB_FIXED_STEP=1` (or `DKB_FIXED_STEP=1`) with the real-time step on (`DKB_REALTIME=1`) steps the game 1/60 s per presented frame whatever the frame took, so game time is frames / 60 in every run: the game runs slower than real time when frames take longer than 1/60 s. Without the real-time step the game already steps whole vsyncs of its own present interval, which its controller can raise when a frame runs late.
+For A/B and image tests, `DKB_FIXED_STEP=1`with the real-time step on (`DKB_REALTIME=1`) steps the game 1/60 s per presented frame whatever the frame took, so game time is frames / 60 in every run: the game runs slower than real time when frames take longer than 1/60 s. Without the real-time step the game already steps whole vsyncs of its own present interval, which its controller can raise when a frame runs late.
 
 `DKB_INPUT_RECORD=<file>` (`input_record` in `dkb.ini`, or Input recording in the menu) writes the merged input in the same format, one line per button press and per stick segment: events before the world clock starts by tick, the rest timed; a button or stick held when the world clock starts is cut there and goes on as a timed event. The file replays as a script, which makes it the repro to attach to a bug report. The recording writes no wait lines: add them by hand where a press must follow a screen, with a `DKB_TRACE=fs` log of the recorded run for the file and its time.
 

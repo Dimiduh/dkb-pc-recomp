@@ -732,7 +732,7 @@ class Cleanup(Step):
         rep, dest = ctx.reporter, ctx.dest
         rep.progress('cleanup', 'ini', force=True)
         try:
-            ini.write(dest, ctx.lang, ctx.layout.ini_example)
+            ini.write(dest, ctx.lang, ctx.layout.ini_example, fallback='totk.ini')
         except OSError as e:
             raise InstallError('cleanup.ini_failed', detail=str(e)) from None
         ctx.state['lang'] = ctx.lang

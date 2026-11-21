@@ -25,7 +25,8 @@ the .NET 10 SDK and Python 3.12+ with Pillow (.venv). The folder holds:
     setup.sh, play.sh                             the same entry for the unpacked folder (--tarball); play.sh = --play
 
 --appimage packs the folder with appimagetool and the static type-2 runtime (no libfuse2 on the host). --tarball packs
-the same folder as a .tar.gz, for launchers that cannot mount an AppImage (a Flatpak sandbox, #402). --prove compiles
+the same folder as a .tar.gz, for a launcher that cannot mount an AppImage (a Flatpak sandbox, #402); the release
+workflow no longer publishes it, only the AppImage. --prove compiles
 the generated C and links build/release-linux-check/dkb with the folder's tools only, then runs the probes beside it.
 Like tools/make_release.py, both need one game version extracted and lifted first (generated/v121, else v143).
 

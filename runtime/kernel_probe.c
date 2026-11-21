@@ -859,11 +859,11 @@ static void test_platform(void) {
 
 // ---- a redirect of a thread that faults in a loop (kernel.c ap_try against the lazy heap's first touches), plus the
 // synchronous fault-handler redirect hook (platform/win32.c plat_mem_fault_ret_hook). A host thread writes every 64th
-// byte of a 64 MiB guest heap that SetHeapSize leaves reserved under TOTK_HEAP_LAZY, so each chunk faults into
+// byte of a 64 MiB guest heap that SetHeapSize leaves reserved under DKB_HEAP_LAZY, so each chunk faults into
 // fault_veh, then shrinks the heap to nothing and starts again. Another thread stops it as ap_try does, and when its
 // rip is in the loop sends it to a stub that counts its arrival, clears the pending flag and jumps back. A redirect still
 // pending after RF_LOST_NS is lost (the stub never ran). Two async rounds (redirecting every stop vs refusing stops
-// above 1, TOTK_AP_SAFE), followed by a synchronous pass with plat_mem_fault_ret_hook registered. x86-64 Windows only.
+// above 1, DKB_AP_SAFE), followed by a synchronous pass with plat_mem_fault_ret_hook registered. x86-64 Windows only.
 #if defined(_WIN32) && defined(__x86_64__)
 #define RF_HEAP (64ull << 20)
 #define RF_STOPS 6000
@@ -1015,11 +1015,11 @@ static void test_redirect_fault(void) {
     }
 
     // Mid-chunk first touches (platform/win32.c lazy_commit_mbi): VirtualQuery on a mid-chunk fault reports BaseAddress
-    // at the faulting page, not the chunk start. Verify both 64 KiB and 256 KiB (TOTK_LAZY_CHUNK_KB) chunks commit the
+    // at the faulting page, not the chunk start. Verify both 64 KiB and 256 KiB (DKB_LAZY_CHUNK_KB) chunks commit the
     // lower reserved pages, preserve a pre-committed read-only page inside the chunk, and mark lazy_map across the
     // whole chunk.
     const uint64_t chunks[2] = {0x10000ull, 0x40000ull};
-    const char *orig_kb_s = cfg_get("TOTK_LAZY_CHUNK_KB");
+    const char *orig_kb_s = cfg_get("DKB_LAZY_CHUNK_KB");
     uint64_t orig_chunk = (orig_kb_s && *orig_kb_s && strtoull(orig_kb_s, NULL, 10) >= 64)
                               ? strtoull(orig_kb_s, NULL, 10) << 10
                               : 0x10000ull;
@@ -1077,7 +1077,7 @@ static void test_redirect_fault(void) {
     }
     plat_mem_lazy_chunk(orig_chunk);
     printf("  lazy-mid-chunk (64 KiB, 256 KiB; plain + mixed read-only page): %s\n",
-           mid_skipped ? "skipped (TOTK_HEAP_LAZY=0)" : mid_ok ? "ok" : "FAIL");
+           mid_skipped ? "skipped (DKB_HEAP_LAZY=0)" : mid_ok ? "ok" : "FAIL");
 }
 #else
 static void test_redirect_fault(void) { printf("  redirect-fault: skipped (x86-64 Windows only)\n"); }

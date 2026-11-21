@@ -44,7 +44,7 @@
 #define SCENE_W 1600
 #define SCENE_H 900
 #define DTA_KIB 113664u      // DynamicTextureAllocatorMem, shipped
-#define SCENE_MAX 4096       // per side, as MacNativeGames' DKB_RENDER_RES
+#define SCENE_MAX 4096       // per side, as MacNativeGames' TOTK_RENDER_RES
 
 static struct {
     int decided;

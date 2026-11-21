@@ -886,7 +886,7 @@ static int fmt_code(const char *name) {
     return 0;
 }
 
-// c2 slot of a texture or image handle (Service.cs of MNG's dkb_xlate: combined handles at 0x20, 32 slots; images at
+// c2 slot of a texture or image handle (Service.cs of MNG's totk_xlate: combined handles at 0x20, 32 slots; images at
 // 0x120; separate textures at 0x168), -1 outside those ranges or for a handle in another constant buffer.
 static int handle_slot(int kind, int cbuf_slot, int handle, int separate) {
     if (cbuf_slot >= 0 && cbuf_slot != 2) return -1;

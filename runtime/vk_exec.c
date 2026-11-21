@@ -3140,7 +3140,7 @@ void vk_exec_lookahead(VkExec *ex) {
 static void walk(VkExec *ex, const op_hdr *h, int depth);
 static _Thread_local int par_skip_start;   // stop op after a mid-OP_CALL flush in par_collect_walk: replay it unsliced, as walk() does
 
-// TOTK_PAR_COLLECT_WALK (on by default): iterative single-switch collection loop (par_collect_walk) handles OP_BEGIN,
+// DKB_PAR_COLLECT_WALK (on by default): iterative single-switch collection loop (par_collect_walk) handles OP_BEGIN,
 // OP_JUMP, OP_CALL and binds without recursing walk() on every call. 0 falls back to walk() + par_take() for bisecting;
 // ab alternates the two with the A/B blocks. Read on the replay thread only.
 static int par_collect_walk_on(void) {

@@ -186,6 +186,12 @@ int probe_cfg(void) {
     CHECK(cfg_reset(vol, 1) == 1, "reset: one key reset");
     CHECK(cfg_version() > v1 && cfg_get("DKB_VOLUME") == NULL, "reset: the value is gone in memory, the version moved");
     CHECK(cfg_reset(vol, 1) == 0, "reset: a key already reset counts 0");
+    {   // a full variable name is accepted too (the menu's bind page passes DKB_BIND_X)
+        static const char *const full[] = {"DKB_BIND_X"};
+        cfg_set("DKB_BIND_X", "k");
+        CHECK(cfg_get("DKB_BIND_X") != NULL && cfg_reset(full, 1) == 1 && cfg_get("DKB_BIND_X") == NULL,
+              "reset: a full DKB_ name resets the key");
+    }
     CHECK(cfg_save_to(path) == 1, "reset: save");
     got = plat_file_read(path, &got_n);
     CHECK(got && got_n == sizeof rbase - 1 && !memcmp(got, rbase, got_n) && strstr((const char *)got, "# volume = 100"),

@@ -15,6 +15,13 @@
 #include "host.h"
 #include "platform/platform.h"
 
+#ifdef _WIN32
+#define ENV_LIST _environ
+#else
+extern char **environ;
+#define ENV_LIST environ
+#endif
+
 #define PREFIX "DKB_"
 #define PREFIX_LEN 4
 #define CFG_MAX_KEYS 512
@@ -851,7 +858,21 @@ static void load_ini(void) {
     }
 }
 
+// The project's variables used to start with TOTK_; they are not read any more. Names only, no values.
+static void log_legacy_env(void) {
+    char names[256] = "";
+    int n = 0;
+    for (char **e = ENV_LIST; e && *e; e++) {
+        if (strncmp(*e, "TOTK_", 5)) continue;
+        const char *eq = strchr(*e, '=');
+        size_t len = eq ? (size_t)(eq - *e) : strlen(*e), have = strlen(names);
+        if (n++ < 8 && have + len + 3 < sizeof names) snprintf(names + have, sizeof names - have, "%s%.*s", have ? ", " : "", (int)len, *e);
+    }
+    if (n) rt_log("cfg: %d TOTK_ environment variable(s) ignored since the rename, use DKB_ instead: %s%s", n, names, n > 8 ? ", ..." : "");
+}
+
 void cfg_init(void) {
+    log_legacy_env();
     load_ini();
     cfg_preset_resolve();
     if (profile_of())

@@ -2803,7 +2803,7 @@ static void repeat_stats(const VkExec *ex, const VkPipeInfo *info) {
     last = now;
 }
 
-// DKB_MERGE_STATS=1 (DKB_MERGE_STATS): how many draws one instanced draw could replace, counted before any merging
+// DKB_MERGE_STATS=1: how many draws one instanced draw could replace, counted before any merging
 // exists. A draw continues the previous draw's run when both have the same command buffer, pass, pipeline, fixed
 // state, textures, samplers, images, storage buffers, vertex buffers and draw arguments, no barrier or uniform update
 // lies between them, and both draw one instance from base instance 0. Only the uniform blocks and the graphics root

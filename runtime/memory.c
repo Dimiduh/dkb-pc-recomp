@@ -1142,7 +1142,7 @@ static void heap_lazy_chunk_init(void) {
     static int done;
     if (done) return;
     done = 1;
-    const char *e = cfg_get("TOTK_LAZY_CHUNK_KB");
+    const char *e = cfg_get("DKB_LAZY_CHUNK_KB");
     if (!e || !*e) return;
     uint64_t kb = strtoull(e, NULL, 0);
     if (!kb) return;
@@ -1151,7 +1151,7 @@ static void heap_lazy_chunk_init(void) {
     uint64_t p = 64;
     while ((p << 1) <= kb) p <<= 1;
     plat_mem_lazy_chunk(p << 10);
-    if (p != 64) rt_log("mem: lazy heap fault commit chunk %llu KiB (TOTK_LAZY_CHUNK_KB)", (unsigned long long)p);
+    if (p != 64) rt_log("mem: lazy heap fault commit chunk %llu KiB (DKB_LAZY_CHUNK_KB)", (unsigned long long)p);
 }
 #endif
 
