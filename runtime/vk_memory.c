@@ -1545,6 +1545,8 @@ static SRange *spend;                             // shadow_lock: GPU writes rec
 static int nspend, cspend;
 static SRange *sblocked;                          // shadow_lock: sorted union of spend, rebuilt when it changes
 static int nsblocked, csblocked, spend_dirty;
+// shadow_lock: spend[0, spend_merged) are in sblocked; -1 after a removal, which has sblocked built again
+static int spend_merged;
 static int64_t s_live_n, s_live_bytes;            // shadow_lock
 static uint64_t s_syncs, s_copied, s_queries, s_untracked, s_wb_bytes, s_ticks;   // shadow_lock: since the last log
 
@@ -1609,6 +1611,30 @@ static int shadow_range_cmp(const void *x, const void *y) {
 // per change, so each copied range searches by address rather than scanning thousands of pending writes.
 static void shadow_blocked_update(void) {
     if (!spend_dirty) return;
+    // Ranges are added one draw at a time and removed a submission at a time. After additions alone, the new ranges
+    // are sorted and merged into the union that is there: sorting the whole list again at every sync that followed a
+    // draw's addition was the largest runtime function of the replaying thread in a layer with about 14,000 ranges
+    // pending.
+    if (spend_merged >= 0 && spend_merged <= nspend && nspend - spend_merged < nspend / 4) {
+        static SRange *add, *out;   // shadow_lock
+        static int cadd, cout;
+        int k = nspend - spend_merged;
+        while (cadd < k) grow((void **)&add, &cadd, sizeof *add);
+        while (cout < nsblocked + k) grow((void **)&out, &cout, sizeof *out);
+        memcpy(add, spend + spend_merged, (size_t)k * sizeof *add);
+        qsort(add, (size_t)k, sizeof *add, shadow_range_cmp);
+        int n = 0;
+        for (int i = 0, j = 0; i < nsblocked || j < k;) {
+            SRange r = j == k || (i < nsblocked && sblocked[i].lo <= add[j].lo) ? sblocked[i++] : add[j++];
+            if (n && r.lo <= out[n - 1].hi) {
+                if (r.hi > out[n - 1].hi) out[n - 1].hi = r.hi;
+            } else out[n++] = r;
+        }
+        while (csblocked < n) grow((void **)&sblocked, &csblocked, sizeof *sblocked);
+        memcpy(sblocked, out, (size_t)n * sizeof *out);
+        nsblocked = n, spend_merged = nspend, spend_dirty = 0;
+        return;
+    }
     while (csblocked < nspend) grow((void **)&sblocked, &csblocked, sizeof *sblocked);
     if (nspend) {
         memcpy(sblocked, spend, (size_t)nspend * sizeof *spend);
@@ -1621,7 +1647,7 @@ static void shadow_blocked_update(void) {
             if (r.hi > sblocked[nsblocked - 1].hi) sblocked[nsblocked - 1].hi = r.hi;
         } else sblocked[nsblocked++] = r;
     }
-    spend_dirty = 0;
+    spend_dirty = 0, spend_merged = nspend;
 }
 
 // shadow_lock held: copy guest [a, b) except for bytes a pending GPU write will replace at its fence.
@@ -1724,7 +1750,10 @@ void vk_gpu_written(uint64_t addr, uint64_t size) {
             s_wb_bytes += size;
         }
         for (int i = 0; i < nspend; i++)
-            if (spend[i].lo == addr && spend[i].hi == addr + size) { spend[i] = spend[--nspend], spend_dirty = 1; break; }
+            if (spend[i].lo == addr && spend[i].hi == addr + size) {
+                spend[i] = spend[--nspend], spend_dirty = 1, spend_merged = -1;
+                break;
+            }
         plat_mutex_unlock(&shadow_lock);
         plat_mutex_unlock_shared(&pool_lock);
     }
@@ -2083,7 +2112,7 @@ void vk_gpu_written_many(const VkGpuWrite *in, int n) {
         if (removed < m && lo < m && !wb_cmp(w[lo], key)) gone[lo] = 1, removed++;
         else spend[kept++] = spend[i];
     }
-    if (kept != nspend) nspend = kept, spend_dirty = 1;
+    if (kept != nspend) nspend = kept, spend_dirty = 1, spend_merged = -1;
     plat_mutex_unlock(&shadow_lock);
     plat_mutex_unlock_shared(&pool_lock);
     plat_mutex_lock(&gen_lock);
@@ -6349,7 +6378,7 @@ void vk_mem_shutdown(void) {
     nm = npend = nwbl = 0;   // mirrors went with their pools
     for (WbLocal *w = wb_locals; w; w = w->next) w->n = w->nk = w->ns = 0;   // pending ranges point at pools just freed
     plat_mutex_lock(&shadow_lock);
-    nstouch = nspend = nsblocked = spend_dirty = 0;   // shadows too
+    nstouch = nspend = nsblocked = spend_dirty = spend_merged = 0;   // shadows too
     s_live_n = s_live_bytes = 0;
     plat_mutex_unlock(&shadow_lock);
     for (int i = 0; i < nretiring; i++) destroy_rec(c, retiring[i]);   // finalized ones whose callback never ran
