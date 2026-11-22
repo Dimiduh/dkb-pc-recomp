@@ -2036,8 +2036,24 @@ static WbPage *wb_find(uint64_t page, int insert) {
 }
 
 // wb_lock held: the page gets what it is owed and is open for a while.
+// A lazy range the last batch left wholly sealed, with its bytes owed, is the same this time unless one of its pages
+// was opened since: wb_gen counts the openings by 2 MiB region (hashed), and the range keeps the counts it saw. A hit
+// spares the walk over the range's pages (a lookup and an owed-range merge each) where the game's shaders rewrite the
+// same few thousand storage buffers every frame; that walk runs on the completion thread, inside the wait for the
+// frame's sync.
+#define WB_GEN_N 4096
+#define WB_RANGE_N 32768
+static uint32_t wb_gen[WB_GEN_N];                                   // wb_lock
+typedef struct { uint64_t lo, hi; const uint8_t *src; uint32_t g0, g1; } WbRange;
+static WbRange wb_range[WB_RANGE_N];                                // wb_lock: direct-mapped by the range's hash
+static inline uint32_t *wb_gen_of(uint64_t a) { return &wb_gen[(a >> 21) * 0x9E3779B1u >> 20 & (WB_GEN_N - 1)]; }
+static inline WbRange *wb_range_of(uint64_t lo, uint64_t hi) {
+    return &wb_range[((lo >> 4) * 0x9E3779B97F4A7C15ull ^ hi * 0xC2B2AE3D27D4EB4Full) >> 40 & (WB_RANGE_N - 1)];
+}
+
 static void wb_open_page(WbPage *e) {
     if (e->state != WB_SEALED) return;
+    ++*wb_gen_of(e->page);
     plat_mem_seal(e->page, 0x1000, 0);
     for (int i = 0; i < e->nseg; i++) {
         memcpy((void *)(uintptr_t)(e->page + e->seg[i][0]), e->src + e->seg[i][0],
@@ -2181,6 +2197,15 @@ void vk_gpu_written_many(const VkGpuWrite *in, int n) {
             cp[ncp++] = (WbCopy){a, b, src};
             continue;
         }
+        // (a range over more than two regions is not kept: it has no single pair of counts)
+        WbRange *wr = ((b - 1) >> 21) - (a >> 21) <= 1 ? wb_range_of(a, b) : NULL;
+        if (wr && wr->lo == a && wr->hi == b && wr->src == src && wr->g0 == *wb_gen_of(a) &&
+            wr->g1 == *wb_gen_of(b - 1)) {
+            wb_skipped += b - a;
+            w[i][2] = 2;   // every page still sealed with these bytes owed: nothing to copy, seal or stamp
+            continue;
+        }
+        int whole = 1;
         for (uint64_t pg = a & ~0xfffull; pg < b; pg += 0x1000) {
             uint64_t lo = pg > a ? pg : a, hi = pg + 0x1000 < b ? pg + 0x1000 : b;
             WbPage *e = wb_find(pg, 1);
@@ -2207,9 +2232,12 @@ void vk_gpu_written_many(const VkGpuWrite *in, int n) {
                 }
                 continue;
             }
+            whole = 0;
             if (ncp == ccp) grow((void **)&cp, &ccp, sizeof *cp);
             cp[ncp++] = (WbCopy){lo, hi, src + (lo - a)};
         }
+        // Kept after the walk, whose own openings (a page with too many pieces, a pool that changed) have counted.
+        if (wr && whole) *wr = (WbRange){a, b, src, *wb_gen_of(a), *wb_gen_of(b - 1)};
     }
     if (lazy) {
         // A page sealed above and opened again by a later range of this batch (too many pieces) stays open.
@@ -2280,7 +2308,7 @@ void vk_gpu_written_many(const VkGpuWrite *in, int n) {
     // it, and that read copied everything owed to it back at once: where the same buffers are rewritten every frame,
     // the lazy write-back then copied as much as the copy at the fence, by faults.
     for (int i = 0; i < m; i++) {
-        if (nvn_gpu_only(w[i][0])) continue;
+        if (nvn_gpu_only(w[i][0]) || w[i][2] == 2) continue;
         for (uint64_t a = w[i][0] & ~0xfffull, hi = (w[i][1] + 0xfff) & ~0xfffull; a < hi;
              a += 1ull << GEN_PAGE_SHIFT) {
             if (nowed && bsearch(&a, owed, (size_t)nowed, sizeof *owed, u64_cmp)) continue;
