@@ -51,7 +51,7 @@ What another frontend can rely on, on every platform (#402):
   folder the launcher remembers, with no window, waits for it and returns its exit code; 1 when there is no finished
   install there.
 - **Game.** Start `dkb` (`dkb.exe` on Windows) from its own folder. `--set KEY=VALUE`, repeatable, gives a `dkb.ini`
-  key (or a full `TOTK_`/`DKB_` variable name) a value for that run only, without changing `dkb.ini`; an unknown key
+  key (or a full `DKB_` variable name) a value for that run only, without changing `dkb.ini`; an unknown key
   exits with code 2. `--version` prints the port version and the game update; `--help` lists the options.
 - **Portable.** Saves (`profile/`), `dkb.ini`, logs (`logs/dkb.log`) and shader caches live beside the executable,
   so the install folder can be moved, copied or deleted as a whole ([installer.md](installer.md), the install folder

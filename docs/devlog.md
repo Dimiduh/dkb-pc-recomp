@@ -6,7 +6,7 @@ the [roadmap issue](https://github.com/Lucas-blip-png/dkb-pc-recomp/issues/10).
 ## 13 November 2026
 
 - **A heavy scene, measured.** A player's recording in layer -101 (RTX 5060 Ti, 1920x1080, 60 fps limit, first
-  minute, warm shader cache, 0.3.0 build) runs at 50.5 and 49.8 fps by default. `TOTK_REPLAY_THREADS=4` gives 54.3 fps
+  minute, warm shader cache, 0.3.0 build) runs at 50.5 and 49.8 fps by default. `DKB_REPLAY_THREADS=4` gives 54.3 fps
   and cuts the frames over 25 ms from 346 and 370 to 146. A stall of about 0.9 s around frame 1775, almost all replay,
   shows in every run. The tables are in [dkb-lowend.md](dkb-lowend.md).
 
@@ -19,7 +19,7 @@ the [roadmap issue](https://github.com/Lucas-blip-png/dkb-pc-recomp/issues/10).
   oshoubber).
 - **The guest's recursive spin lock is gated** (e0f6c66): a thread spinning on a lock whose owner waits for a virtual
   core now hands its core over.
-- **`TOTK_HEAP_LAZY`** (d635637, Windows, off by default): the guest heap is committed on first touch, so the commit of
+- **`DKB_HEAP_LAZY`** (d635637, Windows, off by default): the guest heap is committed on first touch, so the commit of
   the first level drops from about 14.5 GiB to about 9.3 GiB.
 
 ## 11 November 2026
@@ -50,11 +50,11 @@ the [roadmap issue](https://github.com/Lucas-blip-png/dkb-pc-recomp/issues/10).
 
 ## 5 November 2026
 
-- **The destructible terrain renders by default.** `native_gs` (#67) is now on unless `TOTK_NATIVE_GS=0`. On an RTX
+- **The destructible terrain renders by default.** `native_gs` (#67) is now on unless `DKB_NATIVE_GS=0`. On an RTX
   5060 Ti the rocks drew with textures in hand-played gameplay up to the end-of-tutorial cutscene, and philneitz saw
   the same on NVIDIA and on a Radeon 610M. The cutscene's device loss (#75) happens with the switch on or off, as does
   the Radeon's own device loss.
-- **The destructible terrain renders with `TOTK_NATIVE_GS=1`** (#67 by philneitz, 0ee59b2, [#45](https://github.com/Lucas-blip-png/dkb-pc-recomp/issues/45)).
+- **The destructible terrain renders with `DKB_NATIVE_GS=1`** (#67 by philneitz, 0ee59b2, [#45](https://github.com/Lucas-blip-png/dkb-pc-recomp/issues/45)).
   The terrain's passthrough geometry stage now replays natively and fills the indirect counts that the reset from #48
   leaves at zero. In the mining tunnel the walls and floor render, where they are black with the switch off. It is
   translator patch 0018 and stays opt-in. A 180 s tutorial run with the Vulkan validation layer had 0 faults and the
@@ -99,7 +99,7 @@ the [roadmap issue](https://github.com/Lucas-blip-png/dkb-pc-recomp/issues/10).
   error, against 10 before.
 - **Portable geometry replays with owned controls** (#55 and #56 by monsterlag, c053676,
   [#45](https://github.com/Lucas-blip-png/dkb-pc-recomp/issues/45)). The passthrough geometry stages replay under
-  `TOTK_EXPERIMENTAL_GEOMETRY=1`, with cache entries checked against their source and program controls each draw
+  `DKB_EXPERIMENTAL_GEOMETRY=1`, with cache entries checked against their source and program controls each draw
   owns. Their writes and the indirect reads that follow them run in one submission, with the barrier between them
   tested on the GPU by `geometry_ordering_probe`.
 - **Geometry stages read their subgroup inputs** (#60 by monsterlag), and **`tools/extract_nup.py` creates its
@@ -111,7 +111,7 @@ the [roadmap issue](https://github.com/Lucas-blip-png/dkb-pc-recomp/issues/10).
   on our machine, so the fix waits for a retest.
 
 - **Geometry stages replay behind a flag** (#51, #52, #53, #54, #57, #58 by monsterlag, 5ff620b,
-  [#45](https://github.com/Lucas-blip-png/dkb-pc-recomp/issues/45)). With `TOTK_EXPERIMENTAL_GEOMETRY=1`, draws with
+  [#45](https://github.com/Lucas-blip-png/dkb-pc-recomp/issues/45)). With `DKB_EXPERIMENTAL_GEOMETRY=1`, draws with
   an ordinary geometry stage replay through it, and `--probe-vkgeometry` checks a points-to-triangle stage and the
   indirect record it writes on the GPU. The translator accepts a portable passthrough subset when the request names
   which varyings pass through (patch 0016). Shader-cache contracts are read only from root fields. Ampere program
@@ -145,7 +145,7 @@ the [roadmap issue](https://github.com/Lucas-blip-png/dkb-pc-recomp/issues/10).
   records itself, as Eglantine does. In the mining tunnel each reset writes about 1,480 records. The terrain is still
   black: the records' index counts come from the geometry stage, which isn't run yet. Replay time in the tunnel rose
   from 4.3 to 5.9 ms on average, with the frame still at 60 FPS; the cost points are listed in the review.
-  `TOTK_FIX_INDIRECT_RESET=0` turns it off.
+  `DKB_FIX_INDIRECT_RESET=0` turns it off.
 - **Compute storage bases from guarded runtime candidates** (#42 by monsterlag, e5309ca). Storage buffers whose base
   address a compute shader reads from c1, from the pushed roots or from bank 17 are resolved at run time against the
   candidates the dispatch binds, and the shader checks the true range. No bank needs a global preference.
@@ -154,7 +154,7 @@ the [roadmap issue](https://github.com/Lucas-blip-png/dkb-pc-recomp/issues/10).
   A/B in the tutorial showed no cost.
 - **Geometry inputs reflected without the per-vertex array** (#47 by monsterlag, e62dc53), a prerequisite for running
   the terrain's geometry stage.
-- **Audio checked during gameplay.** With `TOTK_TRACE=audio`, a 90 s tutorial run shows sound from about 20 s in, an
+- **Audio checked during gameplay.** With `DKB_TRACE=audio`, a 90 s tutorial run shows sound from about 20 s in, an
   RMS of 0.02 to 0.04 with peaks up to 0.41, and no underrun or overrun on the SDL3 device.
 - **Copies between decoded ASTC textures** (#43 by monsterlag, e90bc7c). A texture-to-texture copy of an ASTC
   texture used to be skipped because the image holds decoded RGBA8 and not the guest's blocks. It now copies the
@@ -171,7 +171,7 @@ the [roadmap issue](https://github.com/Lucas-blip-png/dkb-pc-recomp/issues/10).
   packet, nothing released a buffer after that, and the guide window kept the movie's first picture, a flat yellow
   card, for the rest of the run. Packets now wait in a queue of eight, as in Eglantine's video session, until a
   buffer is reserved. In a resumed run the movie looped 16 times, where it had stopped after 183 pictures.
-  `TOTK_TRACE=codec` logs the decoder calls.
+  `DKB_TRACE=codec` logs the decoder calls.
 - **A slow GPU part reads back its indirect draws' arguments** (f876d9b,
   [#10](https://github.com/Lucas-blip-png/dkb-pc-recomp/issues/10)). In philneitz's respawn stall, 2,755 of the
   3,197 draws in an 18.5 s part were indirect, and the slow-part line did not show their counts. It now logs the
@@ -187,14 +187,14 @@ the [roadmap issue](https://github.com/Lucas-blip-png/dkb-pc-recomp/issues/10).
   and so did every drain of pending presents. That includes the reads Bananza's job workers make of GPU-written
   storage in the middle of a frame: profiles put 13 to 19 % of their time there. The vsync wait counted as game work,
   and the game's frame-rate controller asked for 3 vsyncs. Bananza now sends the present once its blit is submitted
-  and keeps only the pacing in `nvnWindowAcquireTexture`; `TOTK_PRESENT_HOLD=1` brings the hold back, and TotK keeps
+  and keeps only the pacing in `nvnWindowAcquireTexture`; `DKB_PRESENT_HOLD=1` brings the hold back, and TotK keeps
   it. In a 600 s run of the scripted test, every minute after the first ran at 59.4 to 60.0 fps (1 % low 40.8 to 57.1),
   where minutes 2 and 3 ran at 20.0 and 26.6 fps before, and the game changed its present interval 28 times in all.
   The run had no fault.
 - **A replay part that runs long on the GPU names its work** (d4c27e2,
   [#10](https://github.com/Lucas-blip-png/dkb-pc-recomp/issues/10)). philneitz's log of the respawn stall showed the
   GPU itself busy for about 16.8 s per frame inside the replay, with uploads and the present near zero and no device
-  loss. With `TOTK_TRACE=perf`, a part that runs at least `TOTK_PERF_SLOW_GPU_MS` (default 100) on the GPU now logs
+  loss. With `DKB_TRACE=perf`, a part that runs at least `DKB_PERF_SLOW_GPU_MS` (default 100) on the GPU now logs
   its draw and dispatch counts, its largest direct one and the NVN 2 names of its stages.
 - **ASTC chunk breadcrumbs are written by the recorder thread** (#40, by monsterlag). They used to go into the command
   buffer from the submitting thread while the recorder thread owned it, which Khronos validation reported as two
@@ -211,7 +211,7 @@ the [roadmap issue](https://github.com/Lucas-blip-png/dkb-pc-recomp/issues/10).
   about 8 ms a frame; the host's present hold caused that (fixed in 69d51d0, above).
 - **Every GPU submission is timed on the perf line** (eb542bc, 6a49228). Upload batches, which also carry the ASTC
   decoding of texture uploads, and the present (blit, colour adjustment, FSR, overlay) went to the queue without
-  timestamps. With `TOTK_TRACE=perf` the perf line now gives their GPU time per frame, the batches and bytes staged,
+  timestamps. With `DKB_TRACE=perf` the perf line now gives their GPU time per frame, the batches and bytes staged,
   and the time threads wait for uploads. It is for the respawn stall in the Ingot Isle Cave-In section
   ([#10](https://github.com/Lucas-blip-png/dkb-pc-recomp/issues/10)), where the GPU ran at 100 % while the timed parts
   showed about 0.6 ms of a 16.8 s frame.
@@ -247,8 +247,8 @@ the [roadmap issue](https://github.com/Lucas-blip-png/dkb-pc-recomp/issues/10).
   600 s. Nothing in its SPIR-V is rare; what it shares with the early light quads is still being narrowed down.
 - **Guest thread exits check their jump frame** (#34, by monsterlag). After #33, both thread entry points stop with a
   clear error if the CRT's `setjmp` recorded no frame, instead of failing fast later in `longjmp`.
-- **The later GPU fault is not about pipeline timing.** With pipelines built synchronously (`TOTK_PIPE_SYNC=1`,
-  `TOTK_PIPE_WAIT=draw`, as `--shot` does), 2 of 4 runs of 600 s still faulted around 7 minutes in, the same rate as
+- **The later GPU fault is not about pipeline timing.** With pipelines built synchronously (`DKB_PIPE_SYNC=1`,
+  `DKB_PIPE_WAIT=draw`, as `--shot` does), 2 of 4 runs of 600 s still faulted around 7 minutes in, the same rate as
   with background builds. The vertex shader on the GPU changes from fault to fault
   ([#9](https://github.com/Lucas-blip-png/dkb-pc-recomp/issues/9)).
 - **Furthest point so far** (philneitz, by hand on an RTX 5090 Laptop): through the storm cutscene and the cave-in to
@@ -271,7 +271,7 @@ the [roadmap issue](https://github.com/Lucas-blip-png/dkb-pc-recomp/issues/10).
   point: 621.01 and 617.42 with an invalid instruction pointer, 617.14 with a crash inside the driver's shader
   compiler ([#9](https://github.com/Lucas-blip-png/dkb-pc-recomp/issues/9)).
 - **A mitigation for that fault** (84a8f7d). On NVIDIA, the light-quad draws whose vertex stage fetches ten
-  per-instance streams are skipped (`TOTK_FIX_VS_FAULT=0` draws them). The rest of the family draws, so the scene
+  per-instance streams are skipped (`DKB_FIX_VS_FAULT=0` draws them). The rest of the family draws, so the scene
   keeps its lighting. In two 600 s runs, one played to the end (30 FPS in its last minutes) and one faulted later,
   deep in the mining tunnel; without it every run faults right after the first movie.
 - **The tutorial's guide movies play** (f5f1a23). Their player sends packets until one comes back not ready, then

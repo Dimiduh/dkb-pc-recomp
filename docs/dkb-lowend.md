@@ -25,13 +25,13 @@ reports 31 to 35 fps there with about 8,300 draws a frame), so treat it as a flo
 
 ## Where the commit goes
 
-`TOTK_MEM_REPORT=N` logs the breakdown every N frames and at exit. Around frame 2400 of the first level, of about 14.4 GiB:
+`DKB_MEM_REPORT=N` logs the breakdown every N frames and at exit. Around frame 2400 of the first level, of about 14.4 GiB:
 
 - guest heap and stack: 9.2 GiB, of which only about 4.2 GiB is resident in the working set;
 - GPU device-local memory and mirrors: 2.6 to 5.1 GiB, growing during the run;
 - the exe image: about 0.5 GiB.
 
-`TOTK_APP_POOL` below 8 GiB makes the game crash at start (access violation reading 0xc8), so it is not a way to save memory.
+`DKB_APP_POOL` below 8 GiB makes the game crash at start (access violation reading 0xc8), so it is not a way to save memory.
 
 ## Thread knobs on 2 and 4 logical processors
 
@@ -68,21 +68,21 @@ the first minute with a warm shader cache. Each setting ran once or twice; two v
 | Setting | fps | 1% low | Frames over 25 ms |
 | --- | --- | --- | --- |
 | defaults | 50.5 and 49.8 | 21.4 and 23.1 | 346 and 370 |
-| `TOTK_REPLAY_PAR=1` | 51.3 | 23.4 | 314 |
-| `TOTK_REPLAY_THREADS=4` | 54.3 | 25.6 | 146 |
-| `TOTK_REPLAY_THREADS=8` | 53.1 | 23.1 | 198 |
+| `DKB_REPLAY_PAR=1` | 51.3 | 23.4 | 314 |
+| `DKB_REPLAY_THREADS=4` | 54.3 | 25.6 | 146 |
+| `DKB_REPLAY_THREADS=8` | 53.1 | 23.1 | 198 |
 
 Build 89645fc (warm cache):
 
 | Setting | fps | Frames over 25 ms |
 | --- | --- | --- |
 | defaults | 50.3 and 51.6 | not recorded |
-| `TOTK_REPLAY_THREADS=4` | 54.2 and 53.6 | 188 and 181 |
+| `DKB_REPLAY_THREADS=4` | 54.2 and 53.6 | 188 and 181 |
 
 - A cold shader cache cost about 5 fps in the first run.
 - A stall of about 0.9 s around frame 1775, almost all of it replay, shows in every run.
 - Cause of that stall: the first frame of the new area imports guest memory pools on their first GPU use
-  (`TOTK_POOL_LAZY`, `vk_memory.c` `lazy_import`). A sampling profile of the frame (`TOTK_PROFILE_SLOW`) put about 70%
+  (`DKB_POOL_LAZY`, `vk_memory.c` `lazy_import`). A sampling profile of the frame (`DKB_PROFILE_SLOW`) put about 70%
   of the render thread in `import_pool` (`vkAllocateMemory` of host memory); 673 pools were imported between frames 600
   and 1800, about 960 ms in all, 1.4 ms each, most of them in that frame. The GPU uses only two pool kinds: of 3325
   imported pools at frame 3600, 430 of 1651 `CPU_UNCACHED|GPU_CACHED` and 638 of 1076 `CPU_CACHED|GPU_CACHED` were
@@ -103,13 +103,13 @@ Defaults chosen from these runs (13 November, build of bananza with the pre-impo
 | Setting | fps | 1% low | Frames over 25 ms | Worst frame |
 | --- | --- | --- | --- | --- |
 | old defaults | 52.7 and 53.6 | 25.6 and 27.0 | 177 and 226 | about 760 ms |
-| `TOTK_REPLAY_THREADS=4` | 57.0 and 57.2 | 28.8 and 29.0 | 63 and 77 | about 775 ms |
-| `TOTK_HEAP_LAZY=1` | 54.3 and 54.3 | 28.2 and 28.4 | 168 and 193 | about 473 ms |
+| `DKB_REPLAY_THREADS=4` | 57.0 and 57.2 | 28.8 and 29.0 | 63 and 77 | about 775 ms |
+| `DKB_HEAP_LAZY=1` | 54.3 and 54.3 | 28.2 and 28.4 | 168 and 193 | about 473 ms |
 | new defaults (both) | 57.9 and 57.6 | 29.6 and 29.6 | 62 and 65 | about 456 ms |
 | 8 logical processors, old defaults | 49.8 and 50.5 | 23.7 and 26.3 | 371 and 389 | |
-| 8 logical processors, `TOTK_REPLAY_THREADS=4` | 54.1 and 54.3 | 26.1 and 23.5 | 165 and 185 | |
+| 8 logical processors, `DKB_REPLAY_THREADS=4` | 54.1 and 54.3 | 26.1 and 23.5 | 165 and 185 | |
 
-So `TOTK_REPLAY_THREADS` defaults to 4 from 8 logical processors (6 from 12, 3 from 4 since 18 November; on AMD only discrete GPUs on the proprietary driver, the setups measured) and `TOTK_HEAP_LAZY`
+So `DKB_REPLAY_THREADS` defaults to 4 from 8 logical processors (6 from 12, 3 from 4 since 18 November; on AMD only discrete GPUs on the proprietary driver, the setups measured) and `DKB_HEAP_LAZY`
 to 1 on Windows.
 - Run-to-run noise is about 2 fps, and 3 in the 1% low.
 
@@ -158,7 +158,7 @@ A Ryzen 7 5700X held to its first 6 or 4 logical processors (the process starts 
 counts only those), RTX 5060 Ti, the layer -200 recording on a player's save (3.2.0), 1920x1080, 60 fps limit, warm
 caches. The second minute and the end move with where the recording ends, so the first minute compares best.
 
-| Logical processors, `TOTK_REPLAY_THREADS` | first minute fps | frames over 50 ms | second minute fps, 1% low |
+| Logical processors, `DKB_REPLAY_THREADS` | first minute fps | frames over 50 ms | second minute fps, 1% low |
 | --- | --- | --- | --- |
 | 16, default (6) | 57.4 | 9 | 60.0, 53.3 |
 | 6, 0 (the old default) | 40.1 and 40.3 | 169 and 155 | 42.8 and 48.2, 19.4 and 23.0 |
@@ -173,7 +173,7 @@ So from 4 logical processors the default is 3 threads. Below 60 fps the scene st
 
 ### Where the replay's time goes on 6 logical processors
 
-Same setup, 3 threads, `TOTK_TRACE=perf`. In the heavy part (frames 1740 to 2800, about 24,000 draws a frame) the game
+Same setup, 3 threads, `DKB_TRACE=perf`. In the heavy part (frames 1740 to 2800, about 24,000 draws a frame) the game
 presents every second vsync (33.3 ms) and the replay takes 20 to 26 ms a frame against 11.5 ms on 16 logical processors.
 
 - The workers record about 26,000 draws a frame at 1.5 to 1.7 us a draw, 33 to 43 ms of CPU a frame
@@ -188,7 +188,7 @@ presents every second vsync (33.3 ms) and the replay takes 20 to 26 ms a frame a
 - Tried without effect on the first minute (42.8 to 43.3 fps, 21 to 38 frames over 50 ms, inside the run-to-run
   spread): letting the walk record held slices while it waits at those clears (it found none left to take: the
   workers had them all in hand), finer slices (`(expected - drawn) / 8`) so it found some (about 10 a frame),
-  `TOTK_PAR_DEFER_DEPTH=1`, and `TOTK_PAR_DEFER=0`.
+  `DKB_PAR_DEFER_DEPTH=1`, and `DKB_PAR_DEFER=0`.
 - The process uses 3.3 to 4 logical processors of the 6 in that part, and the four busiest threads (the walk, the two
   workers and the game's main thread) about half a processor each. Six logical processors are three cores, so the
   workers and the game's threads share cores through SMT; a fourth replay thread made each draw slower (1.8 to 1.9 us),
@@ -207,11 +207,11 @@ presents every second vsync (33.3 ms) and the replay takes 20 to 26 ms a frame a
   43.5 fps with 15 and 21 frames over 50 ms (was 42.7 to 42.9 fps, 19 to 30); on 16 logical processors 58.5 fps, 6
   over 50 ms. What is left over 50 ms in the first minute is the game's own loading outside the replay and the first
   frame of the heavy part (pool imports).
-- A sampling profile of the slices (`TOTK_PROFILE`) put the binary search of `vk_usnap.c` `first_above` at about half
+- A sampling profile of the slices (`DKB_PROFILE`) put the binary search of `vk_usnap.c` `first_above` at about half
   of `bind_resources`' own samples: every uniform binding of every draw asks it. Four cuts of redundant per-draw work
   followed: the search starts from its last answer for the address's 64 KiB block; an index buffer the command buffer
-  has bound already is not bound again, and only the changed range of the 17 vertex bindings is; `TOTK_DESC_C0_SERIAL`
-  and `TOTK_DESC_STAGE_ORIGIN`, measured gains left off, are on; and `vk_pipeline_set_dynamic_from` records only the
+  has bound already is not bound again, and only the changed range of the 17 vertex bindings is; `DKB_DESC_C0_SERIAL`
+  and `DKB_DESC_STAGE_ORIGIN`, measured gains left off, are on; and `vk_pipeline_set_dynamic_from` records only the
   dynamic states whose inputs differ from the last recorded ones, across pipeline binds too, since every replay pipeline
   has the same dynamic states. `DKB_DRAW_PROFILE` slices: 1809 ns a draw before, 1559 after (uniform buffers 248 to
   163, state 147 to 106, vertex buffers 146 to 112, other ops 266 to 230). Two runs each at 3F: replay 0.99 and 0.96 us
@@ -233,7 +233,7 @@ trace's GPU time per frame in the heavy part (frames 1800 to 3000).
 | 2560x1440, auto | 1241x699 to 1706x960 | 52.6 | 56.8 | 11.7 to 12.0 |
 | 2560x1440, full | 2560x1440 | 50.8, 51.1, 50.7 | 50.2, 51.0, 49.9 | 14.8 to 15.3 |
 
-`TOTK_PASS_GPU=1` (`docs/dkb-testing.md`) splits the GPU time by pass and op. In the heavy part at 1920x1080 auto,
+`DKB_PASS_GPU=1` (`docs/dkb-testing.md`) splits the GPU time by pass and op. In the heavy part at 1920x1080 auto,
 per frame: the scene passes at the 3D size about 3.6 ms (two 2-target passes 2.2 ms, about seven 3-target passes 1.3
 ms), dispatches 3.0 ms in 87 a frame (one compute shader 1.5 ms in 43 dispatches of about 34 us, its count following
 the terrain: 6 to 76 a frame), 35 colour clears 0.33 ms, the shadow map 0.2 ms, 17 post-process passes at 1280x720
@@ -248,7 +248,7 @@ What the runtime adds is small next to that:
   render pass with one: what runs between a pass's end and the next mark is about 1 ms at a full-size scene. At a
   scaled scene the figure reads 3.1 ms, but the sum of all keys then runs 2.4 ms over `gpu avg`; held-back parts of
   one submission complete in one callback, so that line counts some time twice.
-- `TOTK_CS_BARRIER=1` and `game` changed nothing here (2.95 and 2.84 ms of dispatches against 3.03, 50.8 fps at
+- `DKB_CS_BARRIER=1` and `game` changed nothing here (2.95 and 2.84 ms of dispatches against 3.03, 50.8 fps at
   2560x1440 full against 50.8): the dispatches follow passes, not other dispatches, so the full barrier before them
   stays.
 - Depth-stencil D24S8 is drawn as D32S8 (`vk_formats.c`), on two passes a frame at the full size (0.13 ms at 931x524,

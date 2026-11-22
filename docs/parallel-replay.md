@@ -1,6 +1,6 @@
 # Recording the replay on several threads
 
-Status: in bananza since pull request 195 (`TOTK_REPLAY_THREADS`; by default 4 threads from 8 logical processors since 13 November, and 6 from 12 since pull request 271, on AMD only
+Status: in bananza since pull request 195 (`DKB_REPLAY_THREADS`; by default 4 threads from 8 logical processors since 13 November, and 6 from 12 since pull request 271, on AMD only
 discrete GPUs on the proprietary driver, RX 5000 unmeasured): big passes are recorded in slices by up to 16 threads, each with a draw context of its own (pull request 190).
 The 6-thread default was measured on 16 logical processors only (a Ryzen 7 9800X3D); machines with 12 to 15, and
 Intel chips with performance and efficiency cores, were not measured, and there 6 threads leave fewer processors to
@@ -9,12 +9,12 @@ order it was done; the plan at the end is the first one and is kept for the reco
 
 ## Why
 
-In busy areas the frame rate is set by the replay, not by the GPU. A `TOTK_TRACE=perf` run on an RX 9070 XT
+In busy areas the frame rate is set by the replay, not by the GPU. A `DKB_TRACE=perf` run on an RX 9070 XT
 (3.2.0, the hills region, many objects in view) logged frames of 33-39 ms (25-30 fps) with `replay avg` 25-31 ms
 and `gpu avg` 11-13 ms; turning the camera to an empty part of the same area gave 60 fps with a replay of 5-12 ms.
-`TOTK_REPLAY_ASYNC=1` was slower (the replay costs the same, and the game then waits for it on other threads).
+`DKB_REPLAY_ASYNC=1` was slower (the replay costs the same, and the game then waits for it on other threads).
 
-A `TOTK_PROFILE` of the render thread over that run (`tools/prof_report.py`):
+A `DKB_PROFILE` of the render thread over that run (`tools/prof_report.py`):
 
 | Function (inclusive) | Share of samples |
 |---|---|
@@ -30,7 +30,7 @@ the replay to take about half the time, which means recording on more than one t
 
 ### Stage 1 measurements
 
-The same spot with the stage 1 build (0901269, `TOTK_TRACE=perf`, 60-frame windows over about four minutes):
+The same spot with the stage 1 build (0901269, `DKB_TRACE=perf`, 60-frame windows over about four minutes):
 
 - 29,350-29,400 draws and dispatches per frame, steady; 1.00-1.10 us of replay per draw; replay 29-32 ms, 24-27 fps.
   In the empty view before it: 60-90 draws per frame.
@@ -63,7 +63,7 @@ addresses and vertex buffers: dynamic uniform buffer offsets instead of a new pu
 ### Per-draw breakdown
 
 `DKB_DRAW_PROFILE=1` in the same spot (727d63e, 1642 windows of 60000 draws, median ns per draw; the profile itself
-adds about 4 ms of replay a frame, and `TOTK_TRACE=perf` was on, which adds `note_work` to other-ops):
+adds about 4 ms of replay a frame, and `DKB_TRACE=perf` was on, which adds `note_work` to other-ops):
 
 | Section | ns | Section | ns |
 |---|---|---|---|
@@ -81,8 +81,8 @@ the way to 60 fps in this spot.
 
 ## What already exists
 
-- The replay splits a submission into parts between passes (`vk_exec.c` `maybe_split`, `TOTK_SPLIT_DRAWS`,
-  `TOTK_SPLIT_US`): each part is its own primary command buffer, submitted in order (`vk_sync.c` `split_impl`). Only
+- The replay splits a submission into parts between passes (`vk_exec.c` `maybe_split`, `DKB_SPLIT_DRAWS`,
+  `DKB_SPLIT_US`): each part is its own primary command buffer, submitted in order (`vk_sync.c` `split_impl`). Only
   command-buffer state is lost at a split (`vk_exec_draw_new_cb`, `ex->dirty`).
 - The Vulkan calls themselves are made by a recorder thread (`vk_rec.c`); the replay thread does the NVN-to-Vulkan
   translation (`prepare_draw`), which is what the profile shows.
@@ -111,7 +111,7 @@ The replay keeps its state in file-level variables, written for one thread:
 
 A pass whose targets drew at least 256 draws the last time (`par_hist`, keyed by the `OP_SET_RT` payload) opens with
 `VK_RENDERING_CONTENTS_SECONDARY_COMMAND_BUFFERS_BIT`. From its first draw the walk collects ops (`par_take`): state and
-bind ops are applied to the replay state as usual, draws (indexed indirect ones included, unless `TOTK_PAR_INDIRECT=0`)
+bind ops are applied to the replay state as usual, draws (indexed indirect ones included, unless `DKB_PAR_INDIRECT=0`)
 are only kept, and every 1024 draws a copy of the replay state starts a new slice. The first op of another kind (other
 targets, a clear, a copy, a barrier, an uniform update, the end of the submission) flushes (`par_flush`): each slice is
 replayed from its copy into its own secondary command buffer, inheriting the pass's formats, and the primary executes
@@ -126,9 +126,9 @@ costs). The next stage moves `prepare_draw`'s state to the recording thread and 
 
 ## Stage B: workers (DKB_REPLAY_THREADS=N)
 
-Stage A has not run in game yet: the test runs so far had `TOTK_DUMP=key` set, which keeps every pass unsliced (the
+Stage A has not run in game yet: the test runs so far had `DKB_DUMP=key` set, which keeps every pass unsliced (the
 dump follows draws one by one), so their unchanged frames and timings say nothing about slicing. The log now says so,
-and `TOTK_TRACE=perf` reports the passes, slices and draws sliced.
+and `DKB_TRACE=perf` reports the passes, slices and draws sliced.
 
 With `N` > 1, `par_flush` hands the slices to `N-1` workers and the submitting thread; each takes the next slice from a
 counter tagged with the flush's generation (a late worker finds another generation and takes nothing), records it into a
@@ -148,7 +148,7 @@ secondary command buffer of its own pool, and the submitting thread executes the
   (`vk_memory.c` `mirror_lock`, taken once a worker has started: `vk_mem_threads`), the uniform snapshot drops
   (`vk_usnap.c` `drop_lock`), the storage-image dummies. Textures, pipelines, shaders, descriptor pools and the
   completion queue were already locked.
-- The slow-part notes of `TOTK_TRACE=perf` and the memory census are skipped in slices.
+- The slow-part notes of `DKB_TRACE=perf` and the memory census are skipped in slices.
 - `vk_exec_recording_fence` answers in slices too, so storage images bound there get the submission's write fence.
 
 ### Occlusion queries
@@ -200,7 +200,7 @@ the count its targets kept. The key is now the resolved images with their level 
 ### First run with the big passes sliced: slower, on the texture lock
 
 With the history keyed by images (164615a) about 15,000 draws a frame went through the slices on four threads, without
-hazards, and the replay took 35 ms against 28 (20 fps against 27). A `TOTK_PROFILE_CHAINS` profile of 15 s there:
+hazards, and the replay took 35 ms against 28 (20 fps against 27). A `DKB_PROFILE_CHAINS` profile of 15 s there:
 
 - the three workers waited for work 61% of the time (the walk collects a pass on one thread before any slice starts);
 - of the rest, 56% was `plat_rmutex_lock` under `bind_resources`: the texture lock, taken for every texture binding of
@@ -231,7 +231,7 @@ direct-mapped history, evicting each other every frame. The history has 256 entr
 neighbours per signature.
 
 The render thread is busy 27-28 ms a frame there, 10 ms of it outside the replay (the game building its commands), so
-the replay alone cannot bring the frame under 16.7 ms on the submitting thread; `TOTK_REPLAY_ASYNC=1` with the sliced
+the replay alone cannot bring the frame under 16.7 ms on the submitting thread; `DKB_REPLAY_ASYNC=1` with the sliced
 replay is the next thing to measure.
 
 ### Where it stands (278aab1, 16 threads)
@@ -241,7 +241,7 @@ small passes), with no hazard and the same picture. The replay stays at 17.8 ms 
 25-27 on one thread, and 16 threads do little better than 4: what is left is the serial part (collecting the ops and
 applying binds on the submitting thread, the small passes, the copies of the replay state) and the wait for the slices.
 
-`TOTK_REPLAY_ASYNC=1` with slices was slower again (29 fps): the render thread is busy 28 ms a frame even without the
+`DKB_REPLAY_ASYNC=1` with slices was slower again (29 fps): the render thread is busy 28 ms a frame even without the
 replay on it, and the game's other threads wait 18 ms a frame on fences. The frame there is about the replay (17 ms)
 followed by the GPU's 11-14 ms, which begins only when the big passes are submitted, so 60 fps in this spot needs both
 shorter and overlapped, not the replay alone.
@@ -257,7 +257,7 @@ between 128 and 1024 draws.
 ### Workers asleep, and pools for every thread
 
 The smaller slices (ea688fe) did not change the replay (18.5-19 ms): the submitting thread recorded 7.8 ms of slices a
-frame itself. A `TOTK_PROFILE_CHAINS` profile on six threads showed why: the five workers were asleep on their condition
+frame itself. A `DKB_PROFILE_CHAINS` profile on six threads showed why: the five workers were asleep on their condition
 variable 83% of the time. A pass is collected in about 0.1 ms, less than it takes the OS to wake a thread, so the
 submitting thread took most slices before the workers ran. Of the workers' busy time, 17% went to kernel calls under
 `vkAllocateDescriptorSets`: each recording thread takes descriptor pools of its own per submission, and with 16 spares
@@ -301,7 +301,7 @@ recorder thread makes the driver calls; a slice makes its own.
 
 ### Where eight threads wait (profile at fd9782e)
 
-`DKB_REPLAY_THREADS=8`, `TOTK_PROFILE_CHAINS=1`, the hills. Of the samples under `par_record` (all threads), 14% wait
+`DKB_REPLAY_THREADS=8`, `DKB_PROFILE_CHAINS=1`, the hills. Of the samples under `par_record` (all threads), 14% wait
 for the texture lock (half in `vk_texture_slot_token` from `feedback_scan` and `shader_for`, half in the texture loop of
 `bind_resources`), 6% for `use_lock` in `vk_mem_gpu_wrote`, 3% for the global lock of `nvn2_origin` (the draw asks for
 every stage's origin), 3% for `pool_lock` in `resolve_locked` (mostly from `bind_vertex_buffers`), 2% for `drop_lock`
@@ -340,19 +340,19 @@ little). The frame is still bound by the CPU: the render thread is busy 21.4-23 
 
 The same spot on eight threads: parts of at least 300 us gave 46.8-48.8 fps (20.5-21.4 ms a frame, 3.04 parts a
 submission, the game's threads waiting 4.9 ms a frame on fences, GPU 10.5 ms); no minimum gave 43.7-46.9 fps with
-3.09 parts. With more than one replay thread, `TOTK_SPLIT_US` now defaults to 300.
+3.09 parts. With more than one replay thread, `DKB_SPLIT_US` now defaults to 300.
 
 ## Plan
 
 1. **Measure and remove the cheap waste** (done here).
-   - `TOTK_TRACE=perf` now logs draws and dispatches per frame and the replay time per draw, and the descriptor pools
+   - `DKB_TRACE=perf` now logs draws and dispatches per frame and the replay time per draw, and the descriptor pools
      taken and created per frame.
    - Descriptor pools hold 1024 sets instead of 256: in the profile `alloc_set` spent half of its 5% in kernel calls
      under `vkAllocateDescriptorSets`.
 2. **Separate state from emission.** Split `vk_exec_op_draw` into the part that updates the NVN state in `VkExec`
    (binds, viewports, programs) and the part that records Vulkan commands. A pre-pass over a submission's ops then
    runs only the first, cheaply, and notes at each split point a copy of `VkExec`. Split points come from draw counts
-   alone (the time criterion of `TOTK_SPLIT_US` cannot be known ahead).
+   alone (the time criterion of `DKB_SPLIT_US` cannot be known ahead).
 3. **Per-recorder state.** Move `B`, `DS`, `RS`, `BS`, the memos and `cur` into a context struct that each recorder
    owns, so two parts can be recorded at once. Single-threaded behaviour stays the same; this stage is testable on
    its own (same images, same frame time).
@@ -360,8 +360,8 @@ submission, the game's threads waiting 4.9 ms a frame on fences, GPU 10.5 ms); n
    submitting thread applies them in part order when it submits the part.
 5. **Workers.** N workers record chunks of draws from their `VkExec` copies: whole parts into their own primary
    command buffers, and slices of a large pass into secondary command buffers that the primary executes in order
-   (without the recorder thread for those); the submitting thread submits the parts in order. Off by default (`TOTK_REPLAY_THREADS`), compared
-   against the single thread with the dump (`TOTK_DUMP=key`) and `TOTK_TRACE=perf` in the hills.
+   (without the recorder thread for those); the submitting thread submits the parts in order. Off by default (`DKB_REPLAY_THREADS`), compared
+   against the single thread with the dump (`DKB_DUMP=key`) and `DKB_TRACE=perf` in the hills.
 
 Each stage is a commit that keeps the game working; stage 3 onward is checked in game on the RX 9070 XT before the
 next starts.
@@ -369,7 +369,7 @@ next starts.
 ### DLSS (after pull request 195)
 
 With `upscaler = dlss`, `par_start` refused every pass, because `vk_dlss.c` notes the scene's depth and camera at the
-first scene draw of a pass, on the replaying thread. With `TOTK_REPLAY_THREADS` set the helpers took no run either,
+first scene draw of a pass, on the replaying thread. With `DKB_REPLAY_THREADS` set the helpers took no run either,
 so a DLSS player got neither: Zorkats measured 11.6-12.5 fps with eight threads against 14.5 off and 23.5-24.5 with
 the helpers (RTX 3060 Ti, Hilltop). The collection now notes the scene itself (`par_take`, from `X` with the draw's
 targets and binds, in draw order), the slices skip that note, and the jitter they read sets `J.used` atomically. The
@@ -380,7 +380,7 @@ log names the remaining refusals (an armed dump, a pass that did not open again)
 `DKB_REPLAY_THREADS=8`, the hills, standing still. `DKB_DRAW_PROFILE` now logs the slices' contexts apart from the
 replay thread's: a sliced draw took about 2,000 ns against about 700 on one thread, and every section grew, most of all
 the pipeline lookup (230-390 ns against 45), the sets (330 against 55), the storage buffers (230 against 38) and the
-textures (180 against 12). A `TOTK_PROFILE_CHAINS` profile of the same build put 21% of the samples under `par_record`
+textures (180 against 12). A `DKB_PROFILE_CHAINS` profile of the same build put 21% of the samples under `par_record`
 in waits for the texture lock, almost all in `vk_texture_slot_token`: Bananza registers descriptors all through a frame,
 `vk_texture_slots_gen` moves about 160 times a frame, and after every move each thread read the token of every slot
 it checked again under the lock (`slot_still` from `feedback_scan` and the texture memo). Another 7% waited for
@@ -393,16 +393,16 @@ it checked again under the lock (`slot_still` from `feedback_scan` and the textu
 - A thread recording slices adds its write-back ranges to a list of its own, which `vk_mem_mirror_end` moves into the
   submission's list.
 
-With both (f3fdcde, the hills, standing still, `TOTK_TRACE=perf` 60-frame windows of 27,800 to 28,800 draws, one launch
+With both (f3fdcde, the hills, standing still, `DKB_TRACE=perf` 60-frame windows of 27,800 to 28,800 draws, one launch
 each): eight threads 41.9 fps median (41.2-43.8 quartiles) against 40.9 (40.2-41.5) at 4b25f1f, a sliced draw on a
 worker 1.85 us against 2.03, replay 14.8 ms against 15.4. Six threads did better than eight on this 8-core, 16-thread
-CPU: 44.9 fps, 1.43 us a sliced draw; with `TOTK_DYN_UBO=1`, six threads gave 46.0 fps, five 44.7 and eight 44.4.
-`TOTK_ONE_PER_CORE=1` gave 26 fps: it leaves the process eight logical processors for the game and the slices.
+CPU: 44.9 fps, 1.43 us a sliced draw; with `DKB_DYN_UBO=1`, six threads gave 46.0 fps, five 44.7 and eight 44.4.
+`DKB_ONE_PER_CORE=1` gave 26 fps: it leaves the process eight logical processors for the game and the slices.
 
 ### The pipeline step of a sliced draw (3.2.0, RTX 5090)
 
 Lake Level on 3.2.0 (RTX 5090, Ryzen 7 9800X3D, 3840x2160 DLSS Quality), a recorded route replayed with
-`TOTK_INPUT_SCRIPT` and `TOTK_FIXED_STEP=1`, about 7,000-7,900 draws a frame. `TOTK_CRIT` put the frame's critical
+`DKB_INPUT_SCRIPT` and `DKB_FIXED_STEP=1`, about 7,000-7,900 draws a frame. `DKB_CRIT` put the frame's critical
 path in the submitting thread's replay (6.3 of 10.7 ms) and in the main thread's `nvnSyncWait` for it (2.9 ms); the
 game's own code on the path was 0.8 ms, and generated code at -O2 changed nothing measurable. `DKB_DRAW_PROFILE` of the
 slices grew with the thread count, most of all in the pipeline section (`draw_impl` from `geometry_feedback_safe` to
@@ -421,13 +421,13 @@ two waits a frame of 0.5 to 3 ms, and about 500 slices a minute took over 1 ms, 
 draws. Smaller slices (a cap of 128 to 256 draws, a smaller minimum, a smaller share per thread) and more spare
 descriptor pools (none was created in the frame once the perf line counted the slice threads' pools) changed nothing.
 
-Timing the contended acquires of the shared locks (`perf_lock_wait`, always on with `TOTK_TRACE=perf`) put the waits on
+Timing the contended acquires of the shared locks (`perf_lock_wait`, always on with `DKB_TRACE=perf`) put the waits on
 the texture lock: about 117 waits over 100 us every 60 frames, about 200 ms of thread time, up to 4.4 ms. Timing the
-holds by caller (`TOTK_LOCK_HOLDS=1`) found one holder: `vk_be_guest_read` through `vk_texture_write_back`, about 1.4
+holds by caller (`DKB_LOCK_HOLDS=1`) found one holder: `vk_be_guest_read` through `vk_texture_write_back`, about 1.4
 times a frame for 1.2 ms on average and up to 4.5 ms, against a few hundred long holds in all for every other caller. A
 game thread's read of GPU-written texture storage read each texture back with `vk_upload_flush(1)`, waiting under the
 lock for every GPU job queued so far. Queuing the copies under the lock, waiting for the GPU without it and writing
-the storage under it again (as #259 now does, `TOTK_WB_UNLOCKED`) took the texture lock waits from 130 to 19 per 60
+the storage under it again (as #259 now does, `DKB_WB_UNLOCKED`) took the texture lock waits from 130 to 19 per 60
 frames in a build of ours, the longest wait at a pass end from 3.3 ms to 0.4 ms and the longest slice from 4.3 to
 1.8 ms; the frame rate stayed the same (43.9 fps both, same session), since the stalled workers mostly overlapped the
 submitting thread's own collection and slices.

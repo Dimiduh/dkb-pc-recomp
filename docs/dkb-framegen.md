@@ -48,11 +48,11 @@ Hookshot's own log on the same machine at Auto: 806 to 827 frames per 5 s, 714 t
 
 ## Turning it on
 
-The Display tab of the settings menu (F1) has the Frame generation row (a note under it says that VSync makes no frames) and, at 2x, a Made by row for `frame_gen_by`. Or set `frame_gen` in `dkb.ini` (or `TOTK_FRAME_GEN` in the environment) to `auto` or `2x` to `8x`. It can be changed while running (turning it off frees the images; another multiplier rebuilds them and starts the history again).
+The Display tab of the settings menu (F1) has the Frame generation row (a note under it says that VSync makes no frames) and, at 2x, a Made by row for `frame_gen_by`. Or set `frame_gen` in `dkb.ini` (or `DKB_FRAME_GEN` in the environment) to `auto` or `2x` to `8x`. It can be changed while running (turning it off frees the images; another multiplier rebuilds them and starts the history again).
 
 ## AMD FSR 3.1 frame interpolation (`frame_gen_by = fsr3`, experimental)
 
-`frame_gen_by` (`TOTK_FRAME_GEN_BY`, live) chooses what makes the frame at 2x: `builtin` (the default) is the interpolation above, which sees the picture only; `fsr3` is AMD's FSR 3.1 frame interpolation, which also uses the scene's depth and motion and an optical flow over the two pictures. The passes are AMD's own (FidelityFX SDK v1.1.4, commit `c6efa6bf7f2027b3ec94f28578bb5965eabb9e55`: ten frame interpolation passes, seven optical flow passes) compiled from `runtime/third_party/fidelityfx` by `tools/build_shaders.py` (`runtime/fsr3_fi_*_spv.h`, `runtime/fsr3_of_*_spv.h`) and recorded by `runtime/vk_fsr3fi.c` as compute dispatches; no AMD library is loaded.
+`frame_gen_by` (`DKB_FRAME_GEN_BY`, live) chooses what makes the frame at 2x: `builtin` (the default) is the interpolation above, which sees the picture only; `fsr3` is AMD's FSR 3.1 frame interpolation, which also uses the scene's depth and motion and an optical flow over the two pictures. The passes are AMD's own (FidelityFX SDK v1.1.4, commit `c6efa6bf7f2027b3ec94f28578bb5965eabb9e55`: ten frame interpolation passes, seven optical flow passes) compiled from `runtime/third_party/fidelityfx` by `tools/build_shaders.py` (`runtime/fsr3_fi_*_spv.h`, `runtime/fsr3_of_*_spv.h`) and recorded by `runtime/vk_fsr3fi.c` as compute dispatches; no AMD library is loaded.
 
 The depth and motion are the temporal upscaler's: `vk_dlss.c` `vk_temporal_inputs` makes them for DLSS, FSR 3.1 and FSR 4, and `vk_temporal_done` hands them to `vk_fsr3fi_note`. So AMD's frame is made only when:
 
@@ -83,7 +83,7 @@ Log lines: `fsr3fi: AMD FSR 3.1 frame interpolation can run on this GPU` and `fs
 Without these, no made frames are produced (one log line says why) and presentation is unchanged:
 
 - Bananza only.
-- Present mode `mailbox` or `immediate` (`TOTK_VK_PRESENT`). With `fifo` the several presents per game frame would block the present thread.
+- Present mode `mailbox` or `immediate` (`DKB_VK_PRESENT`). With `fifo` the several presents per game frame would block the present thread.
 - Window texture format 8-bit UNORM (RGBA8 or BGRA8) with blit-source support, or the game's own HDR picture (A2B10G10R10 with `hdr_native = 1`; see HDR below) on a GPU that can store to, filter and blit that format.
 
 If set-up fails (missing push descriptors, format support, pipeline or image creation, fence timeout, submit failure), the pass turns itself off for the session.
@@ -146,7 +146,7 @@ The set-up line says the mode: `fg: frame generation Auto on (experimental): a f
 
 ## AMD Anti-Lag 2
 
-`antilag = 1` (`TOTK_ANTILAG=1`; Display > Frame rate > AMD Anti-Lag 2, off by default, experimental), independent of frame generation. Code: `runtime/vk_antilag.c`. The row is shown only where the device has `VK_AMD_anti_lag` with its `antiLag` feature. The extension is enabled whenever it is there, so the setting applies at once.
+`antilag = 1` (`DKB_ANTILAG=1`; Display > Frame rate > AMD Anti-Lag 2, off by default, experimental), independent of frame generation. Code: `runtime/vk_antilag.c`. The row is shown only where the device has `VK_AMD_anti_lag` with its `antiLag` feature. The extension is enabled whenever it is there, so the setting applies at once.
 
 On Linux, RADV has no `VK_AMD_anti_lag` of its own: Mesa ships it as the implicit layer `VK_LAYER_MESA_anti_lag`, which the Vulkan loader loads only with `ENABLE_LAYER_MESA_ANTI_LAG=1`. `vk_device.c` sets that variable before the instance when `antilag = 1` at start, unless the player set it either way (`DISABLE_LAYER_MESA_ANTI_LAG=1` still keeps the layer out). With `antilag = 0` at start the layer is not loaded, so on RADV turning Anti-Lag 2 on takes a restart, and its menu row appears only after one.
 

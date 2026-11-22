@@ -2,10 +2,10 @@
 
 > [!NOTE]
 > This page comes from TotK Recomp. DKB Recomp uses the same input code, so it applies to Bananza too; setting and file
-> names are written below with the TotK Recomp names. In the Bananza build read `TOTK_*` as `DKB_*` (both work, `DKB_`
-> wins) and `totk.ini` as `dkb.ini` (a `totk.ini` is copied to it on the first run).
+> names are written below with the TotK Recomp names. In the Bananza build read `DKB_*` as `DKB_*` (both work, `DKB_`
+> wins) and `dkb.ini` (a `totk.ini` of an older build is copied to it on the first run).
 
-Input comes from the selected SDL3 gamepad, the keyboard and the mouse, merged into one Switch controller (`runtime/input.c`). Buttons are ORed; each stick takes the source with the larger deflection. Keys and mouse buttons count only while the game window is in the foreground. `TOTK_INPUT=none` disables both (automated runs). `TOTK_*` settings can also be set in `totk.ini` next to `totk.exe` (`input = none`, `motion = 0`, `rumble = 0`); the environment overrides the file. `TOTK_RUMBLE_STRENGTH` is the rumble strength in percent (0 to 300, default 130; 0 is the same as `rumble = 0`). `TOTK_RUMBLE_CURVE` is the exponent applied to the amplitude before the strength (0.2 to 1.5, default 0.6; lower makes weak pulses stronger, 1 is linear). `TOTK_RUMBLE_TRIGGERS=1` also drives the impulse triggers of an Xbox pad. `TOTK_RUMBLE_HD` (`auto` or `off`, default `off` since three third-party Switch Pro pads broke with it: stuck vibration, slow or held buttons, or a dropped link, #363, #383): with `auto`, on a Switch Pro Controller or Joy-Con the game's amplitude and frequency pairs go to the pad as an HD rumble packet (SDL's `SDL_SendGamepadEffect`, strength and curve applied to the amplitudes) instead of the two-motor `SDL_RumbleGamepad` path; `off` keeps that path. A pad that disconnects after HD packets falls back to the two-motor path for the rest of the session, because some Switch-mode clone pads drop the link at their first HD packets (#363). Other pads are unchanged.
+Input comes from the selected SDL3 gamepad, the keyboard and the mouse, merged into one Switch controller (`runtime/input.c`). Buttons are ORed; each stick takes the source with the larger deflection. Keys and mouse buttons count only while the game window is in the foreground. `DKB_INPUT=none` disables both (automated runs). `DKB_*` settings can also be set in `dkb.ini` next to `dkb.exe` (`input = none`, `motion = 0`, `rumble = 0`); the environment overrides the file. `DKB_RUMBLE_STRENGTH` is the rumble strength in percent (0 to 300, default 130; 0 is the same as `rumble = 0`). `DKB_RUMBLE_CURVE` is the exponent applied to the amplitude before the strength (0.2 to 1.5, default 0.6; lower makes weak pulses stronger, 1 is linear). `DKB_RUMBLE_TRIGGERS=1` also drives the impulse triggers of an Xbox pad. `DKB_RUMBLE_HD` (`auto` or `off`, default `off` since three third-party Switch Pro pads broke with it: stuck vibration, slow or held buttons, or a dropped link, #363, #383): with `auto`, on a Switch Pro Controller or Joy-Con the game's amplitude and frequency pairs go to the pad as an HD rumble packet (SDL's `SDL_SendGamepadEffect`, strength and curve applied to the amplitudes) instead of the two-motor `SDL_RumbleGamepad` path; `off` keeps that path. A pad that disconnects after HD packets falls back to the two-motor path for the rest of the session, because some Switch-mode clone pads drop the link at their first HD packets (#363). Other pads are unchanged.
 
 ## Controller device
 
@@ -25,15 +25,15 @@ Identities are cached per connected SDL instance ID: routine scans do not repeat
 controllers. Failed opens are also remembered until that device disconnects; reconnecting allows a fresh attempt.
 A new/reconnected device can still cause a brief initialization hitch.
 
-The selection is saved as `pad_device` in `totk.ini` (`dkb.ini` in Bananza). Set it to `auto` to reset it, or use
-`TOTK_PAD_DEVICE` / `DKB_PAD_DEVICE` to override it. The other values are opaque device keys written by the menu.
+The selection is saved as `pad_device` in `dkb.ini`. Set it to `auto` to reset it, or use
+`DKB_PAD_DEVICE` to override it. The other values are opaque device keys written by the menu.
 Devices with serial numbers can be identified across sessions; otherwise identical devices use fallback ordinals,
 which can become ambiguous if their connection order changes. Duplicate names have numbered menu labels.
 
 Motion and vibration use the selected controller's existing capabilities. Switching devices keeps the existing
 button mappings and button-layout setting.
 
-`TOTK_PAD_LAYOUT` (`pad_layout`, the *Button layout* row on the Controls tab, live) picks which face button is Switch A:
+`DKB_PAD_LAYOUT` (`pad_layout`, the *Button layout* row on the Controls tab, live) picks which face button is Switch A:
 
 - `nintendo`: by position, as on a Switch (the table below).
 - `xbox`: south A, east B, west X, north Y, as an Xbox pad labels them; on a PlayStation pad cross is A, circle B, square X, triangle Y.
@@ -69,7 +69,7 @@ pause menu, Co-op mode > Share controllers starts the game's controller check, w
 players at once, and player 2 plays Pauline. The first gamepad stays player 1, and a gamepad plugged in while one is
 connected joins as player 2 instead of taking player 1 over. Player 2 uses the gamepad table of its own layout and the
 `bind_` lines, and rumbles its own gamepad (the game's vibration for npad No.2, including in single-player, where the game reads
-it too); it has no motion of its own. `coop = 0` (`TOTK_COOP=0`) keeps one controller. Without a
+it too); it has no motion of its own. `coop = 0` (`DKB_COOP=0`) keeps one controller. Without a
 gamepad on player 1 (keyboard only) there is no player 2. GameShare is not supported.
 
 ## Xbox button prompts
@@ -108,11 +108,11 @@ Every prompt is a glyph of one font, `scft/NinDev-HardKey.bfotf`, the same in ea
 |---|---|---|
 | F1 or Esc | Guide / Home button, or Minus + Plus together (default) | open or close the settings menu; the game gets no input while it is open |
 | F10 | L3 + R3 (both stick clicks) | performance overlay: off, frame rate, full panel, full panel with the frame time broken into its parts, counter |
-| F11 | Hold Start + Back for 0.5 seconds (opt-in) | windowed, or back to the last full-screen mode (`window_mode`), saved to `totk.ini` |
+| F11 | Hold Start + Back for 0.5 seconds (opt-in) | windowed, or back to the last full-screen mode (`window_mode`), saved to `dkb.ini` |
 
 By default, the original immediate Minus + Plus settings shortcut remains available and follows the current bindings.
 Enable **Fullscreen hold shortcut** in F1 > Controls > Controller (`pad_fullscreen_hold = 1`, or
-`TOTK_PAD_FULLSCREEN_HOLD` / `DKB_PAD_FULLSCREEN_HOLD`) to replace that combination with fullscreen.
+`DKB_PAD_FULLSCREEN_HOLD`) to replace that combination with fullscreen.
 The setting defaults to off and takes effect immediately. Guide / Home and keyboard F1 work in either mode.
 In Steam Deck Game Mode, enabling the fullscreen hold leaves only keyboard F1 to open settings when Steam intercepts Guide / Home.
 
@@ -126,14 +126,14 @@ In the menu the arrow keys, the D-pad or the left stick move, Enter or A selects
 
 Under *Controls*, open *Controller* to remap controller buttons or *Mouse & Keyboard* to assign up to two keys or mouse buttons per action, including movement and camera directions. Click a binding or activate it with A or Enter, then press the new input. Esc or five seconds without a press cancels, and a controller button cancels a key binding. Delete, Backspace or X clears the selected binding. A key already in use moves to the new action, and a controller button swaps with the one it replaces. Remapped face buttons (A B X Y) stay in the same physical positions when changing the button layout. *Reset all bindings* restores both devices to their defaults. F1, F8, F10, F11 and Esc are reserved. The menu displays punctuation keys using the current keyboard layout.
 
-The tab writes `totk.ini` lines, one per Switch button or stick direction: `bind_<button> = <entry>, <entry>, ...`. The button is `A B X Y L R ZL ZR PLUS MINUS LEFT UP RIGHT DOWN LCLICK RCLICK`, or a stick direction `LSTICK_LEFT LSTICK_UP LSTICK_RIGHT LSTICK_DOWN` (movement, W A S D by default) and `RSTICK_...` (camera, the arrow keys). An entry is `pad:<name>` or `key:<name>`:
+The tab writes `dkb.ini` lines, one per Switch button or stick direction: `bind_<button> = <entry>, <entry>, ...`. The button is `A B X Y L R ZL ZR PLUS MINUS LEFT UP RIGHT DOWN LCLICK RCLICK`, or a stick direction `LSTICK_LEFT LSTICK_UP LSTICK_RIGHT LSTICK_DOWN` (movement, W A S D by default) and `RSTICK_...` (camera, the arrow keys). An entry is `pad:<name>` or `key:<name>`:
 
 - pad names: `south east west north l r zl zr start back lstick rstick dpad_left dpad_up dpad_right dpad_down lpaddle1 rpaddle1 lpaddle2 rpaddle2 touchpad` (`zl`, `zr` are the triggers; the paddles are the back buttons of an Xbox Elite, DualSense Edge or Steam Controller, upper pair 1, lower pair 2; `touchpad` is the DualSense and DualShock 4 touchpad click; no Switch button has the paddles or the touchpad by default)
 - key names: `a` to `z`, `0` to `9`, `f2` to `f7`, `f9`, `f12`, `num0` to `num9`, `space tab enter backspace lshift rshift lctrl rctrl lalt capslock insert delete home end pageup pagedown up down left right`, `num_add num_sub num_mul num_div num_decimal`, `minus equals lbracket rbracket semicolon apostrophe comma period slash backslash grave`, `mouse_l mouse_r mouse_m mouse_x1 mouse_x2`
 - `key:default` and `pad:default` keep that part's defaults (`pad:default` is each layout's own button).
 - `none` leaves the button unbound.
 
-A line replaces every default of that button, pad and keyboard, so list the keys you still want or use `key:default`. Pad names are physical positions, so a line means the same in both layouts and replaces the layout's own button for that Switch button. Stick directions take keys only: the controller's sticks and the mouse camera always work. Buttons without a line keep the table above. Names are case-insensitive. An invalid entry logs one `input: bind ...` line and is skipped; a line without a valid entry changes nothing. The `TOTK_BIND_<button>` environment variables work like any other setting. A changed line applies at once (`runtime/input_win.c` builds the tables again at its next poll).
+A line replaces every default of that button, pad and keyboard, so list the keys you still want or use `key:default`. Pad names are physical positions, so a line means the same in both layouts and replaces the layout's own button for that Switch button. Stick directions take keys only: the controller's sticks and the mouse camera always work. Buttons without a line keep the table above. Names are case-insensitive. An invalid entry logs one `input: bind ...` line and is skipped; a line without a valid entry changes nothing. The `DKB_BIND_<button>` environment variables work like any other setting. A changed line applies at once (`runtime/input_win.c` builds the tables again at its next poll).
 
 A pad that reports its face buttons swapped (A/B and X/Y, as some GuliKit models do) is fixed with:
 
@@ -146,13 +146,13 @@ bind_Y = pad:north, key:mouse_l
 
 ## Mouse camera
 
-Enable **Direct mouse camera** in F1 > Controls to use raw mouse distance for rotation in Bananza 1.0.0's normal ground-follow camera: each count turns `0.064 * TOTK_MOUSE_SENS` degrees. It is off by default. The toggle and sensitivity apply live. This bypasses the stick's dead zone, acceleration and smoothing, so small movements register and fast turns are not capped at full-stick speed. The game's camera inversion settings and vertical limits still apply, and the native camera handles its orbit and collision. Vertical mouse movement can interrupt the native pitch-adjustment waiting states, just as stick input does. Controller and arrow-key input retain the game's normal behavior when the mouse is idle.
+Enable **Direct mouse camera** in F1 > Controls to use raw mouse distance for rotation in Bananza 1.0.0's normal ground-follow camera: each count turns `0.064 * DKB_MOUSE_SENS` degrees. It is off by default. The toggle and sensitivity apply live. This bypasses the stick's dead zone, acceleration and smoothing, so small movements register and fast turns are not capped at full-stick speed. The game's camera inversion settings and vertical limits still apply, and the native camera handles its orbit and collision. Vertical mouse movement can interrupt the native pitch-adjustment waiting states, just as stick input does. Controller and arrow-key input retain the game's normal behavior when the mouse is idle.
 
-Other camera modes use the existing mouse-to-stick fallback. Each presented frame converts raw counts into `counts per second * TOTK_MOUSE_SENS / 3000` of full stick deflection, held for that frame. In that path the game's stick curve and dead zone still apply, and the larger deflection wins between mouse, controller and arrow keys. Aiming and special transformations still need gameplay validation. The setting is stored as `mouse_camera` in `totk.ini`; `DKB_MOUSE_CAMERA=0|1` overrides it. Direct rotation requires regenerating the game code with `recomp/patches-dkb100.txt`.
+Other camera modes use the existing mouse-to-stick fallback. Each presented frame converts raw counts into `counts per second * DKB_MOUSE_SENS / 3000` of full stick deflection, held for that frame. In that path the game's stick curve and dead zone still apply, and the larger deflection wins between mouse, controller and arrow keys. Aiming and special transformations still need gameplay validation. The setting is stored as `mouse_camera` in `dkb.ini`; `DKB_MOUSE_CAMERA=0|1` overrides it. Direct rotation requires regenerating the game code with `recomp/patches-dkb100.txt`.
 
-`TOTK_MOUSE_SENS` (0 to 10, default 1; higher turns faster, 0 turns the mouse camera and the cursor capture off). While the window is the foreground window the cursor is hidden and confined to the client area. It is released on focus loss, on minimise, while F11 changes the window, during a size or move loop and while a text entry is open. Esc releases it by hand: the cursor shows, the mouse camera and mouse buttons stop, and the window can be moved, minimised or closed. A mouse click inside the client area captures it again; that click does not reach the game. Activating the window by a click on its title bar or border does not capture, so it can be dragged or closed right away; Alt+Tab or a click in the client area captures as before. `TOTK_INPUT=none` disables the capture too.
+`DKB_MOUSE_SENS` (0 to 10, default 1; higher turns faster, 0 turns the mouse camera and the cursor capture off). While the window is the foreground window the cursor is hidden and confined to the client area. It is released on focus loss, on minimise, while F11 changes the window, during a size or move loop and while a text entry is open. Esc releases it by hand: the cursor shows, the mouse camera and mouse buttons stop, and the window can be moved, minimised or closed. A mouse click inside the client area captures it again; that click does not reach the game. Activating the window by a click on its title bar or border does not capture, so it can be dragged or closed right away; Alt+Tab or a click in the client area captures as before. `DKB_INPUT=none` disables the capture too.
 
-`TOTK_STICK_DEADZONE` (0 to 50, default 8) is the gamepad stick dead zone in percent of full deflection, the same for both sticks. It is round: a stick inside the circle reads centred, and the rest of its travel is scaled to start at 0 at the edge, so full deflection still reaches full. Raise it for a stick that drifts. The game's own dead zone applies after it.
+`DKB_STICK_DEADZONE` (0 to 50, default 8) is the gamepad stick dead zone in percent of full deflection, the same for both sticks. It is round: a stick inside the circle reads centred, and the rest of its travel is scaled to start at 0 at the edge, so full deflection still reaches full. Raise it for a stick that drifts. The game's own dead zone applies after it.
 
 The stick direction bits (`StickLLeft` to `StickRDown`) are derived from the sticks at 50% deflection. A gamepad plugged in later is picked up within one second; with none connected the log says `input: no gamepad`.
 
@@ -160,7 +160,7 @@ The stick direction bits (`StickLLeft` to `StickRDown`) are derived from the sti
 
 ### Over Bluetooth (built in)
 
-With `switch2 = 1` in `totk.ini` (F1 > Controls > Controller > "Switch 2 controllers (Bluetooth)", applied at the next
+With `switch2 = 1` in `dkb.ini` (F1 > Controls > Controller > "Switch 2 controllers (Bluetooth)", applied at the next
 start) the game talks to a Pro Controller 2 or Joy-Con 2 over Bluetooth LE itself: no bridge program. On Windows it
 uses the system's Bluetooth through WinRT (`runtime/switch2_win.c`; Windows 10 or 11, a Bluetooth LE adapter), on Linux
 BlueZ over D-Bus (`runtime/switch2_bluez.c`); macOS has no transport yet. The code is ported from
@@ -190,7 +190,7 @@ frequencies need Bluetooth: SDL's driver takes no raw rumble data). On Linux dis
 libusb. On Windows SDL loads `libusb-1.0.dll` and needs the controller's second USB interface on the WinUSB driver
 (once per controller with Zadig: Options > List All Devices, the controller's **Interface 1**, WinUSB, Replace Driver;
 never Interface 0). Neither the MSYS2 nor the upstream Windows SDL3 build has libusb, so a Windows build needs an SDL3
-built with `-DSDL_HIDAPI_LIBUSB=ON -DSDL_HIDAPI_LIBUSB_SHARED=ON` and `libusb-1.0.dll` beside `totk.exe` (as
+built with `-DSDL_HIDAPI_LIBUSB=ON -DSDL_HIDAPI_LIBUSB_SHARED=ON` and `libusb-1.0.dll` beside `dkb.exe` (as
 mkw-recomp's `tools/build/windeps.py` does). These controllers never take the Switch 1 HD packet (`rumble_hd`), so
 they stay on the two-motor path even with `rumble_hd = auto`.
 
@@ -202,7 +202,7 @@ Bridges that output a ViGEm DualShock 4 (ProCon2Windows, connectyourpro as teste
 
 ## Scripted input
 
-`TOTK_INPUT_SCRIPT=<file>` replays presses. It is ORed with real input and still applies under `TOTK_INPUT=none`. One event per line, `#` starts a comment:
+`DKB_INPUT_SCRIPT=<file>` replays presses. It is ORed with real input and still applies under `DKB_INPUT=none`. One event per line, `#` starts a comment:
 
 ```
 <frame> <button> [hold_frames]            # A B X Y L R ZL ZR PLUS MINUS LEFT UP RIGHT DOWN LCLICK RCLICK; hold defaults to 4
@@ -216,10 +216,10 @@ Bridges that output a ViGEm DualShock 4 (ProCon2Windows, connectyourpro as teste
 
 Game time alone does not cover a load that runs in the background while the game keeps presenting frames, as the level load after the save-select screen does: on a slower machine it takes more game time, and a press timed for the end of it lands on the loading screen. A wait line holds every line after it until the game reaches a state the host can see, then shifts the clocks of those lines so they read the wait's time at that moment: the lines keep their spacing from the condition, earlier or later than in the recorded run. The conditions:
 
-- `wait file <name>`: the game opens a file (RomFS or save) whose path contains `<name>`. Opens before the wait is reached do not count. A stream the game starts when a screen appears (the title music, the music of a level) marks that screen; `TOTK_TRACE=fs` logs each open with the world clock (`fs <s> @<ms> rom <path>`), which gives both the name and the time to write.
+- `wait file <name>`: the game opens a file (RomFS or save) whose path contains `<name>`. Opens before the wait is reached do not count. A stream the game starts when a screen appears (the title music, the music of a level) marks that screen; `DKB_TRACE=fs` logs each open with the world clock (`fs <s> @<ms> rom <path>`), which gives both the name and the time to write.
 - `wait world`: the world clock has started (TotK: the first save load ended; Bananza: the first frame).
 
-A wait is reached once the wait before it held (or at the start); the lines before it are not held back. Its time is optional (a bare `wait` is tick 0, so the lines after it count from the moment it held, and its timeout runs from the moment it was reached) and names the moment the condition held in the recorded run. A timed wait that holds before the world clock starts logs `held before the world clock` and does not shift the lines after it. If it has not held when its clock reaches its time plus `timeout_ms` (60000 by default, also for 0; always milliseconds of game time, and for a timed wait not counted before the world clock starts) it falls through as if it had held then. Each wait logs once: `input: script frame N: wait file X held at T ms (asked A): the lines after it move by +D ms` (or `timed out`); T, and the times logged for the lines after it, are on the script's clock, the world clock less the shifts of the earlier waits. The summary adds `input: script waits: W, K of them timed out`. For example, before the first press on the title screen and before the first press in the level (the times from the `TOTK_TRACE=fs` log of the recorded run):
+A wait is reached once the wait before it held (or at the start); the lines before it are not held back. Its time is optional (a bare `wait` is tick 0, so the lines after it count from the moment it held, and its timeout runs from the moment it was reached) and names the moment the condition held in the recorded run. A timed wait that holds before the world clock starts logs `held before the world clock` and does not shift the lines after it. If it has not held when its clock reaches its time plus `timeout_ms` (60000 by default, also for 0; always milliseconds of game time, and for a timed wait not counted before the world clock starts) it falls through as if it had held then. Each wait logs once: `input: script frame N: wait file X held at T ms (asked A): the lines after it move by +D ms` (or `timed out`); T, and the times logged for the lines after it, are on the script's clock, the world clock less the shifts of the earlier waits. The summary adds `input: script waits: W, K of them timed out`. For example, before the first press on the title screen and before the first press in the level (the times from the `DKB_TRACE=fs` log of the recorded run):
 
 ```
 @14567.0 wait file <title music stream>
@@ -229,16 +229,16 @@ A wait is reached once the wait before it held (or at the start); the lines befo
 @30171.8 PLUS 866.7
 ```
 
-For A/B and image tests, `TOTK_FIXED_STEP=1` (or `DKB_FIXED_STEP=1`) with the real-time step on (`TOTK_REALTIME=1`) steps the game 1/60 s per presented frame whatever the frame took, so game time is frames / 60 in every run: the game runs slower than real time when frames take longer than 1/60 s. Without the real-time step the game already steps whole vsyncs of its own present interval, which its controller can raise when a frame runs late.
+For A/B and image tests, `DKB_FIXED_STEP=1`with the real-time step on (`DKB_REALTIME=1`) steps the game 1/60 s per presented frame whatever the frame took, so game time is frames / 60 in every run: the game runs slower than real time when frames take longer than 1/60 s. Without the real-time step the game already steps whole vsyncs of its own present interval, which its controller can raise when a frame runs late.
 
-`TOTK_INPUT_RECORD=<file>` (`input_record` in `totk.ini`, or Input recording in the menu) writes the merged input in the same format, one line per button press and per stick segment: events before the world clock starts by tick, the rest timed; a button or stick held when the world clock starts is cut there and goes on as a timed event. The file replays as a script, which makes it the repro to attach to a bug report. The recording writes no wait lines: add them by hand where a press must follow a screen, with a `TOTK_TRACE=fs` log of the recorded run for the file and its time.
+`DKB_INPUT_RECORD=<file>` (`input_record` in `dkb.ini`, or Input recording in the menu) writes the merged input in the same format, one line per button press and per stick segment: events before the world clock starts by tick, the rest timed; a button or stick held when the world clock starts is cut there and goes on as a timed event. The file replays as a script, which makes it the repro to attach to a bug report. The recording writes no wait lines: add them by hand where a press must follow a screen, with a `DKB_TRACE=fs` log of the recorded run for the file and its time.
 
 `DKB_LIVE_INPUT=<file>` drives player 1 from the first line of a file the harness rewrites while the game runs
 (button names as above, `LSTICK:x:y`, `RSTICK:x:y`); `DKB_LIVE_INPUT2=<file>` does the same for player 2, which counts
 as connected while it is set (with `coop = 1`), so the two-player mode can be tested with one gamepad or none.
 
-`TOTK_TEST_PAD=<lx>,<ly>,<rx>,<ry>` attaches an SDL virtual gamepad at start whose sticks rest at these raw SDL axis values (-32768 to 32767, down is +y), so a drifting or held stick can be tested without a controller: the values go through the gamepad mapping and `TOTK_STICK_DEADZONE` like a real pad's, and `TOTK_INPUT_RECORD` shows what reached the game.
+`DKB_TEST_PAD=<lx>,<ly>,<rx>,<ry>` attaches an SDL virtual gamepad at start whose sticks rest at these raw SDL axis values (-32768 to 32767, down is +y), so a drifting or held stick can be tested without a controller: the values go through the gamepad mapping and `DKB_STICK_DEADZONE` like a real pad's, and `DKB_INPUT_RECORD` shows what reached the game.
 
 ## RenderDoc capture (blocked)
 
-`TOTK_RDOC=<frame>[,...]` (`runtime/rdoc_win.c`; `TOTK_RDOC_DIR`, `TOTK_RDOC_DLL`) loads RenderDoc before `vkCreateInstance`. RenderDoc hides `VK_EXT_external_memory_host`, which the back end requires for guest pool imports (`runtime/vk_memory.c`), so device creation fails under it. A capture needs a copy-based pool fallback first.
+`DKB_RDOC=<frame>[,...]` (`runtime/rdoc_win.c`; `DKB_RDOC_DIR`, `DKB_RDOC_DLL`) loads RenderDoc before `vkCreateInstance`. RenderDoc hides `VK_EXT_external_memory_host`, which the back end requires for guest pool imports (`runtime/vk_memory.c`), so device creation fails under it. A capture needs a copy-based pool fallback first.

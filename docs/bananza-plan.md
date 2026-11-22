@@ -29,7 +29,7 @@ Each phase ends in a milestone someone else can check. The order follows the cri
 - NVN 2 bootstrap and proc table read from the game's own `sdk` (the driver is linked into the game, as on Switch 1).
   529 of the 700 entry points share NVN 1's names; the 171 new ones are listed in
   [bananza-nvn-new-procs.txt](bananza-nvn-new-procs.txt).
-- With `TOTK_GPU=null` the main loop runs at 20 fps, audio plays and controller input arrives.
+- With `DKB_GPU=null` the main loop runs at 20 fps, audio plays and controller input arrives.
 - **Milestone reached:** the game loop runs without a picture.
 
 ## F3 — Shaders: Ampere to SPIR-V (done for the first scene)
@@ -52,7 +52,7 @@ Each phase ends in a milestone someone else can check. The order follows the cri
 - [x] Controller input in the menu and in gameplay (walking, punching). Keyboard and mouse come from TotK Recomp's
       input layer ([controls.md](controls.md)).
 - [x] Audio: the game's audio renderer (REV15) mixes on the host and plays through SDL3. In a 90 s tutorial run,
-      `TOTK_TRACE=audio` measured an RMS of 0.02 to 0.04 and peaks up to 0.41 once gameplay starts, with no underrun
+      `DKB_TRACE=audio` measured an RMS of 0.02 to 0.04 and peaks up to 0.41 once gameplay starts, with no underrun
       or overrun.
 - [x] Tutorial guide movies: `nn::codec` VP9 decoding on the host with libvpx (`runtime/ov_codec.c`).
 - [ ] GPU fault (an invalid instruction pointer; the freeze was the same fault, 86fb7cc) right after the first guide
@@ -60,7 +60,7 @@ Each phase ends in a milestone someone else can check. The order follows the cri
       123 that read a storage buffer at c0+0x530) does not matter. Its fragment code, its data and rasterisation are
       ruled out; leaving out only the draw command passes. Leaving out that shader moves the fault to another vertex
       shader of the same light-quad family. Seen on NVIDIA 617.14 (a crash inside the driver's shader compiler),
-      617.42 and 621.01. Mitigated (84a8f7d, `TOTK_FIX_VS_FAULT`): the quads with ten instance streams are skipped on
+      617.42 and 621.01. Mitigated (84a8f7d, `DKB_FIX_VS_FAULT`): the quads with ten instance streams are skipped on
       NVIDIA. The later fault (about 2 runs in 4, also with synchronous pipeline builds) follows one more quad of the
       same shape, NVN 2 vertex stage cae0ef8e9fe9147f, which is skipped too (6da41ba): 0 faults in 6 runs of 600 s
       since. The cause is still open: its vertex input and SPIR-V match quads that never fault. [#9]
@@ -75,10 +75,10 @@ Each phase ends in a milestone someone else can check. The order follows the cri
 - [x] Getting past the tutorial cave. [#7] Players now get through several layers (-101, floor 200, Glacier,
       Layer 500, Tempest); what still stops them is tracked in F6.
 - [ ] Destructible terrain renders black. [#45] Its indirect records are now reset on the host in replay order
-      (#48, `TOTK_FIX_INDIRECT_RESET`), which should also end the garbage arguments behind the respawn stall in
+      (#48, `DKB_FIX_INDIRECT_RESET`), which should also end the garbage arguments behind the respawn stall in
       #10 (not retested yet). The index counts come from the geometry stage, still to be lowered and run. Ordinary
       geometry shaders now translate and cache under an explicit topology contract (#49, #50), and replay behind
-      `TOTK_EXPERIMENTAL_GEOMETRY=1` (#52). The translator also accepts a portable passthrough subset (#54). The
+      `DKB_EXPERIMENTAL_GEOMETRY=1` (#52). The translator also accepts a portable passthrough subset (#54). The
       terrain's geometry stage is passthrough, and the replay still rejects it until #55 lands.
 - [x] Saves: the game writes `progress.sav`, `caption.sav` and `config.sav` as it plays, and a later run on the same
       profile offers Continue and resumes at the last checkpoint (the mining tunnel of the tutorial).
@@ -111,7 +111,7 @@ Issues: [#2] [#3] [#4] [#5] [#7] [#8] [#9]; the whole list is the
 - [x] HDR experiment.
 - [x] Frame generation experiment.
 - [x] Replay helper threads and sliced passes.
-- [x] Lazy heap knob (`TOTK_HEAP_LAZY`).
+- [x] Lazy heap knob (`DKB_HEAP_LAZY`).
 
 ## F6 — Stability (in progress)
 
@@ -124,8 +124,8 @@ Issues: [#2] [#3] [#4] [#5] [#7] [#8] [#9]; the whole list is the
 
 - [ ] The stall of about 0.9 s at an area load (almost all of it replay).
 - [ ] Replay cost per draw.
-- [x] `TOTK_REPLAY_THREADS` default chosen by core count (4 from 8 logical processors).
-- [x] `TOTK_HEAP_LAZY` on by default on Windows.
+- [x] `DKB_REPLAY_THREADS` default chosen by core count (4 from 8 logical processors).
+- [x] `DKB_HEAP_LAZY` on by default on Windows.
 - [ ] Frame rates above 60 (#113 #118 #137 #201).
 
 ## F8 — Image (in progress)

@@ -133,7 +133,7 @@ jobs:
         run: python tools/make_release_linux.py --fetch-toolchain --out build/ci-toolchain
       - name: Build the self-contained AppImage in the pinned container (as in dkb-linux.yml)
         run: |
-          python tools/make_release_linux.py --game dkb --stub             --out build/release/DKB-Setup-linux             --appimage "build/release/DKB-Setup-$(cat VERSION)+$(git rev-parse --short HEAD)-x86_64.AppImage"             --tarball "build/release/DKB-Setup-$(cat VERSION)+$(git rev-parse --short HEAD)-x86_64.tar.gz"             --ci-container
+          python tools/make_release_linux.py --game dkb --stub             --out build/release/DKB-Setup-linux             --appimage "build/release/DKB-Setup-$(cat VERSION)+$(git rev-parse --short HEAD)-x86_64.AppImage"             --ci-container
       - name: Smoke-test the AppImage
         env:
           DKB_SETUP_HOME: ${{ runner.temp }}/dkb-setup
@@ -143,7 +143,6 @@ jobs:
           name: DKB-Setup-appimage
           path: |
             build/release/DKB-Setup-*-x86_64.AppImage
-            build/release/DKB-Setup-*-x86_64.tar.gz
           if-no-files-found: error
 
   publish:

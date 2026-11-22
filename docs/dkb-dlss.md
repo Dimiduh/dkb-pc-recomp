@@ -132,13 +132,13 @@ needs AMD's library, which this project does not ship:
   user's choice either way.
 - Linux: AMD publishes no Linux library; a Vulkan FSR 4 build that exports the same entry points (`ffxCreateContext`,
   `ffxDestroyContext`, `ffxQuery`, `ffxDispatch`), such as fsr4-vk, is named `amd_fidelityfx_upscaler_vk.so` and put in
-  one folder. Set `upscaler = fsr4` in `totk.ini` before the start: such a library records with descriptor buffers, so the
+  one folder. Set `upscaler = fsr4` in `dkb.ini` before the start: such a library records with descriptor buffers, so the
   device enables `VK_EXT_descriptor_buffer` (only when the GPU has it, and only for this setting with the library found).
   Without the extension the library refuses its context and `dkb.log` says so.
   The device also enables `VK_KHR_compute_shader_derivatives` with `computeDerivativeGroupLinear` when both are
   supported. The fsr4-vk 4.1.1 INT8 and Auto providers fall back to FSR 3.1 if this feature was left disabled.
 
-The folder is the one `fsr_dir` names (in `totk.ini`), and when the library is not there the folder of the program (`dkb.exe`
+The folder is the one `fsr_dir` names (in `dkb.ini`), and when the library is not there the folder of the program (`dkb.exe`
 or `dkb`). `dkb.log` has `fsr4: loaded <path>` for the file that was taken.
 
 The inputs are the same as the other temporal upscalers' (`vk_temporal_inputs`), but the library cannot take them as the game
@@ -186,4 +186,4 @@ drawn at the output size): making it again at each area's first frame would stal
 the replay thread would race, and it is not covered by this.
 
 To check it, set `upscaler = fsr3`, play a few seconds, then choose `fsr` (or the game's own upscaler) in the menu or with
-`TOTK_MENU_TEST_SET`: about two seconds later the `fsr3: not used ...` line and the `temporal: ...` one follow.
+`DKB_MENU_TEST_SET`: about two seconds later the `fsr3: not used ...` line and the `temporal: ...` one follow.
