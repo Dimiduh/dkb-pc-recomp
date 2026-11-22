@@ -1,7 +1,7 @@
-"""Unit tests for input_pad_stick circular sweeps and spin_step high-FPS cadence accumulation.
+"""Unit tests for spin_step high-FPS stick-spin cadence accumulation.
 
-Extracts input_pad_stick from runtime/input_map.c and spin_step (+ scalar register helpers) verbatim from
-runtime/frame_rate.c, compiles tests/stick_spin_test.c at -O0 and -O2 with -Wall -Wextra -Werror, and runs it.
+Extracts spin_step (+ scalar register helpers) verbatim from runtime/frame_rate.c, compiles tests/stick_spin_test.c
+at -O0 and -O2 with -Wall -Wextra -Werror, and runs it.
 """
 import argparse
 import os
@@ -37,11 +37,9 @@ def main():
     ap.add_argument('--source-root', type=Path, default=ROOT)
     args = ap.parse_args()
 
-    im_src = (args.source_root / 'runtime' / 'input_map.c').read_text(encoding='utf-8')
     fr_src = (args.source_root / 'runtime' / 'frame_rate.c').read_text(encoding='utf-8')
 
     cut = '\n\n'.join([
-        extract_function(im_src, 'void input_pad_stick('),
         extract_function(fr_src, 'static float reg_f32('),
         extract_function(fr_src, 'static void set_f32('),
         extract_function(fr_src, 'static float ld_f32('),

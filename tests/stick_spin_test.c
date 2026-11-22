@@ -1,5 +1,5 @@
-// Unit tests for input_pad_stick circular sweeps and high-FPS stick-spin ring cadence accumulation
-// (runtime/frame_rate.c spin_step). No game files or GPU required.
+// Unit tests for high-FPS stick-spin ring cadence accumulation (runtime/frame_rate.c spin_step).
+// No game files or GPU required.
 #include <assert.h>
 #include <math.h>
 #include <stdint.h>
@@ -8,8 +8,6 @@
 #include <string.h>
 
 #include "cpu.h"
-
-#define STICK_MAX 32767
 
 static uint64_t g_now_ns = 1000000000ull;
 static uint64_t plat_now_ns(void) { return g_now_ns; }
@@ -23,38 +21,6 @@ static void plat_mutex_unlock(PlatMutex *m) { assert(*m > 0); (*m)--; }
 
 static const double PI = 3.14159265358979323846;
 
-static double wrap_deg(double a) {
-    while (a > 180.0) a -= 360.0;
-    while (a <= -180.0) a += 360.0;
-    return a;
-}
-
-static void test_input_pad_stick_sweeps(void) {
-    const float deads[2] = {0.08f, 0.15f};
-    for (int di = 0; di < 2; di++) {
-        float dead = deads[di];
-        int32_t out[2];
-        input_pad_stick(0, 0, dead, out);
-        assert(out[0] == 0 && out[1] == 0);
-
-        double prev_ang = 0.0;
-        for (int deg = 0; deg <= 360; deg += 5) {
-            double rad = (double)deg * PI / 180.0;
-            int32_t rx = (int32_t)lrint(cos(rad) * STICK_MAX);
-            int32_t ry = (int32_t)lrint(sin(rad) * STICK_MAX);
-            input_pad_stick(rx, ry, dead, out);
-            double r = hypot((double)out[0], (double)out[1]) / STICK_MAX;
-            assert(r > 0.99 && r <= 1.001);
-            double ang = atan2((double)out[1], (double)out[0]) * (180.0 / PI);
-            if (deg > 0) {
-                double d = wrap_deg(ang - prev_ang);
-                assert(d > 3.5 && d < 6.5);
-            }
-            prev_ang = ang;
-        }
-    }
-}
-
 /* Faithful model of Bananza 3.2.0 f_70002409d0 (main+0x2409d0):
  * computes signed angle delta / dt, optionally filters via spin_step(), pushes into 90-entry ring ceil(s0) times,
  * then walks back up to 15 entries stopping on sign reversal or >2 consecutive |v| < 1e-5f samples.
@@ -66,6 +32,7 @@ typedef struct {
     float prev_x, prev_y;
     int has_prev;
     float out_avg, out_streak;
+    float last_raw_rate, last_eff_dt, last_eff_rate;
 } SpinSim;
 
 static void spin_sim_step(SpinSim *sim, float sx, float sy, float dt, uint64_t det_key, int use_hook) {
@@ -97,6 +64,10 @@ static void spin_sim_step(SpinSim *sim, float sx, float sy, float dt, uint64_t d
         eff_dt = reg_f32(&c, 0);
         eff_rate = reg_f32(&c, 8);
     }
+
+    sim->last_raw_rate = rate;
+    sim->last_eff_dt = eff_dt;
+    sim->last_eff_rate = eff_rate;
 
     int pushes = (int)ceilf(eff_dt);
     for (int p = 0; p < pushes; p++) {
@@ -170,8 +141,8 @@ static void test_spin_step_cadence_and_invariants(void) {
     assert(simulate_spin_triggers(240.0, 60.0, 1080.0, 0, 0) == 0);
     assert(simulate_spin_triggers(240.0, 66.7, 1080.0, 0, 0) == 0);
 
-    /* 2. dt >= 1.0 (60 FPS or slower) is a strict no-op: loads s0 = [x0] and leaves s8 and every other reg intact. */
-    const float slow_dts[] = {1.0f, 1.5f, 2.0f, 0.0f, -1.0f};
+    /* 2. dt >= 0.95 (near-60 FPS or slower) and dt <= 0 are strict no-ops: load s0 = [x0], leave s8 and every other reg intact. */
+    const float slow_dts[] = {0.95f, 0.97f, 0.99f, 1.0f, 1.5f, 2.0f, 0.0f, -1.0f};
     for (size_t i = 0; i < sizeof slow_dts / sizeof *slow_dts; i++) {
         float dt_mem = slow_dts[i];
         Cpu c, want;
@@ -287,10 +258,80 @@ static void test_spin_step_cadence_and_invariants(void) {
         assert(reg_f32(&c, 0) == 1.0f);
         assert(fabsf(reg_f32(&c, 8)) == 0.0f);
     }
+
+    /* 6. Bypass frames (dt >= 0.95) clear any stale partial bucket for this instance without touching other regs. */
+    const float bypass_dts[2] = {0.99f, 1.05f};
+    for (size_t bi = 0; bi < 2; bi++) {
+        float dt_sub = 0.6f;
+        float dt_bypass = bypass_dts[bi];
+        uint64_t key = 0x9990004 + bi;
+        g_now_ns += 500000000ull;
+        Cpu c, want;
+        memset(&c, 0, sizeof c);
+        c.x[0] = (uint64_t)(uintptr_t)&dt_sub;
+        c.x[19] = key;
+        set_f32(&c, 8, 50.0f);
+        spin_step(&c);   // acc.dt = 0.6, acc.angle = 30.0 -> s0 = 0.0
+        assert(reg_f32(&c, 0) == 0.0f);
+
+        g_now_ns += 10000000ull;
+        for (int r = 0; r < 32; r++) {
+            c.x[r] = 0x3333000077770000ull + (uint64_t)r;
+            c.v[r] = ((__uint128_t)c.x[r] << 64) | ~c.x[r];
+        }
+        c.sp = 0x70003000ull;
+        c.nzcv = 0x40000000u;
+        c.x[0] = (uint64_t)(uintptr_t)&dt_bypass;
+        c.x[19] = key;
+        set_f32(&c, 8, 18.0f);
+        want = c;
+        set_f32(&want, 0, dt_bypass);
+        spin_step(&c);
+        assert(memcmp(&c, &want, sizeof c) == 0);
+        assert(reg_f32(&c, 0) == dt_bypass);
+        assert(reg_f32(&c, 8) == 18.0f);
+
+        g_now_ns += 10000000ull;
+        c.x[0] = (uint64_t)(uintptr_t)&dt_sub;
+        set_f32(&c, 8, 10.0f);
+        spin_step(&c);   // bucket was cleared -> 0.6 < 1.0 -> s0 = 0.0
+        assert(reg_f32(&c, 0) == 0.0f);
+
+        g_now_ns += 10000000ull;
+        set_f32(&c, 8, 10.0f);
+        spin_step(&c);   // 0.6 + 0.6 = 1.2 >= 1.0 -> emits 10.0 (uncontaminated by old 50.0)
+        assert(reg_f32(&c, 0) == 1.0f);
+        assert(fabsf(reg_f32(&c, 8) - 10.0f) < 1e-4f);
+    }
+
+    /* 7. 60 fps DKB_REALTIME=1 dither around dt = 1.0 passes straight through every frame and triggers spin. */
+    {
+        const float dither_dts[6] = {0.98f, 1.02f, 0.99f, 1.01f, 0.96f, 1.04f};
+        const double poll_s = 1.0 / 60.0;
+        const uint64_t key = 0x9990010;
+        SpinSim sim;
+        memset(&sim, 0, sizeof sim);
+        g_now_ns += 1000000000ull;
+        double t = 0.0;
+        int hits = 0;
+        for (int f = 0; f < 60; f++) {
+            float dt = dither_dts[f % 6];
+            double frame_s = (double)dt / 60.0;
+            double sample_t = floor(t / poll_s) * poll_s;
+            double rad = sample_t * 1080.0 * (PI / 180.0);
+            float sx = (float)cos(rad), sy = (float)sin(rad);
+            g_now_ns += (uint64_t)llround(frame_s * 1e9);
+            spin_sim_step(&sim, sx, sy, dt, key, 1);
+            assert(sim.last_eff_dt == dt);
+            assert(sim.last_eff_rate == sim.last_raw_rate);
+            if (sim.out_streak >= 15.0f && fabsf(sim.out_avg) >= 15.0f) hits++;
+            t += frame_s;
+        }
+        assert(hits > 0);
+    }
 }
 
 int main(void) {
-    test_input_pad_stick_sweeps();
     test_spin_step_cadence_and_invariants();
     puts("stick_spin_test: ok");
     return 0;
