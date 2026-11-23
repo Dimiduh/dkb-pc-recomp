@@ -32,6 +32,10 @@ int input_hold_gate(InputHoldGate *gate, uint32_t device, uint64_t now_ns, uint6
 // Default mapped Plus+Minus chord: toggle once until both are released; an open menu leaves neutral game input.
 int input_menu_gate(int *held, int menu_open, uint64_t *buttons, int32_t sticks[4]);
 int input_overlay_gate(int *held, uint64_t *buttons);   // L3+R3: 1 in the poll both go down
+// pad_background = 0: 1 while a gamepad's inputs must be dropped. background: the setting is off and the game window
+// is not in front; held: any of the pad's buttons or triggers is down. *latch (0 at start) keeps dropping after the
+// window returns until nothing is held.
+int input_background_gate(int *latch, int background, int held);
 // The gamepad alone, for the menu: Switch button bits and the left stick (up +y). 0 without a connected gamepad.
 int input_pad_read(uint64_t *buttons, int32_t *lx, int32_t *ly);
 // Device snapshots are allocated with malloc; caller frees *devices. Calls are input-lock protected.

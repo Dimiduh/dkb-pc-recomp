@@ -62,6 +62,20 @@ The log names the layout in effect (`input: gamepad layout ...`); the menu shows
 
 Esc is unbound in the game; it opens the settings menu and releases the mouse cursor (see Mouse camera). Z and X duplicate ZL and ZR so menu pages turn with two neighbouring keys; the menu tabs (L, R) are Q and R. The mouse wheel is unbound. The bindings are the tables of `input_map` in `runtime/input_map.c`: the keys (platform-neutral key ids) and one gamepad table per layout (gamepad inputs by position); `runtime/input_win.c` translates Win32 virtual keys and SDL buttons.
 
+## Controller input in the background
+
+By default the gamepads keep playing while another window is in front, so the game can be played with a pad while a
+browser or a chat window has the focus. **Controller input in background** in F1 > Controls > Controller
+(`pad_background = 0`, or `DKB_PAD_BACKGROUND`) turns that off: the game then ignores both
+players' gamepads, including the guide button and the gyro, until its window is in front again, as it always does with
+the keyboard and the mouse (#502). A button still held when the window comes back, such as the one that closed an
+overlay, counts only once every button is released. The setting takes effect at once. It decides what the game reads,
+not whether the game runs in the background: that is **Keep running in background** (`assume_focus`).
+
+It goes by the window system's focus (`ikb_foreground` in `runtime/input_win.c` and `runtime/input_sdl.c`). An overlay
+drawn into the game's own window without taking the focus, as Steam's overlay is under some compositors, leaves the
+game window in front, and the gamepad then still plays.
+
 ## Two players (Bananza co-op)
 
 With two gamepads connected, the second one is player 2 (`runtime/ov_input.c`, npad No.2 as a Pro Controller): in the

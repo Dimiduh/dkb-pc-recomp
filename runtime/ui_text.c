@@ -295,6 +295,10 @@ static const char *const text_en[UI_TEXT_COUNT] = {
     [UI_MENU_PAD_LAYOUT_PROMPTS_RESTART] = "prompts change after restart",
     [UI_MENU_STICK_DEADZONE] = "Stick dead zone",
     [UI_MENU_STICK_DEADZONE_DESC] = "Sets how far either stick must move before it registers. Raise it if the character or camera drifts.",
+    [UI_MENU_PAD_BACKGROUND] = "Controller input in background",
+    [UI_MENU_PAD_BACKGROUND_DESC] = "On: the controller keeps playing while another window is in front.\n\n"
+                                   "Off: the game ignores the controller until its window is in front again, as it does with the keyboard. "
+                                   "Buttons held when the window comes back count once released.",
     [UI_MENU_MOUSE_CAMERA] = "Direct mouse camera",
     [UI_MENU_MOUSE_CAMERA_DESC] = "Mouse movement turns the follow camera directly. Other camera modes interpret mouse movement as stick input.",
     [UI_MENU_MOUSE_SENS] = "Mouse sensitivity",
@@ -741,6 +745,10 @@ static const char *const text_ru[UI_TEXT_COUNT] = {
     [UI_MENU_PAD_LAYOUT_PROMPTS_RESTART] = "подсказки сменятся после перезапуска",
     [UI_MENU_STICK_DEADZONE] = "Мёртвая зона стиков",
     [UI_MENU_STICK_DEADZONE_DESC] = "Насколько нужно отклонить стик геймпада, чтобы игра это заметила. Увеличьте, если персонаж или камера двигаются сами.",
+    [UI_MENU_PAD_BACKGROUND] = "Геймпад в фоне",
+    [UI_MENU_PAD_BACKGROUND_DESC] = "Включено: геймпад управляет игрой, даже когда впереди другое окно.\n\n"
+                                   "Выключено: игра не реагирует на геймпад, пока её окно не окажется впереди, как и с клавиатурой. "
+                                   "Кнопки, зажатые при возврате к окну, срабатывают после того, как их отпустят.",
     [UI_MENU_MOUSE_CAMERA] = "Прямое управление камерой мышью",
     [UI_MENU_MOUSE_CAMERA_DESC] = "Движение мыши напрямую поворачивает камеру слежения. "
                                  "В других режимах камеры мышь имитирует правый стик.",

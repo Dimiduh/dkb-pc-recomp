@@ -308,6 +308,10 @@
 # Default: Plus + Minus opens settings. Opt in to a physical Start + Back fullscreen hold instead (0.5 s).
 # Guide/Home and keyboard F1 still open settings in either mode.
 # pad_fullscreen_hold = 0
+# 1: the gamepads keep playing while another window is in front (the Steam overlay, a browser). 0: they count only
+# while the game window is in front, as the keyboard does; a button still held when the window comes back counts once
+# released. Changes take effect at once.
+# pad_background = 1
 # Gamepad motion controls (0 = off) and vibration (0 = off).
 # motion = 1
 # rumble = 1
