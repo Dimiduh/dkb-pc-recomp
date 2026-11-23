@@ -993,9 +993,17 @@ int input_sony_pad_present(void) {
     if (sony) rt_log("input: PlayStation pad at start: \"%s\" (after %d ms)", seen, waited);
     else if (n) rt_log("input: no PlayStation pad at start (\"%s\"): Switch prompts", seen);
     else rt_log("input: no gamepad listed within %d ms of start: Switch prompts", waited);
-    // The probe runs on whichever thread opens the RomFS first, and SDL ties its device-notification window to the
-    // thread that initialised the subsystem: release it so start() initialises it again on the input thread.
+    // The probe runs on whichever thread opens the RomFS first. On Windows and macOS SDL ties its device notification
+    // (a message window, a run loop) to the thread that initialised the subsystem: release it so start() initialises
+    // it again on the input thread.
+    // On Linux keep it. There SDL has one udev monitor for all its subsystems, and the window thread polls it from its
+    // event pump (SDL_PumpEvents, SDL_UDEV_Poll in SDL's core/linux/SDL_udev.c). Gamepads hold the only reference, so
+    // this quit frees the monitor while that poll may be reading it: an input device added at that moment (a
+    // controller, or the touchscreen a streaming host such as Sunshine adds when a client connects) crashed the game
+    // in libSDL3 about a second after start. start() initialising the subsystem again only counts up.
+#ifndef __linux__
     SDL_QuitSubSystem(SDL_INIT_GAMEPAD);
+#endif
     return sony;
 }
 
