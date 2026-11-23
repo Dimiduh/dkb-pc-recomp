@@ -98,6 +98,7 @@ static int par_unmerged;   // slices recorded whose contexts' frame counters wai
 static void par_room(VkExec *ex);
 static uint64_t par_usd[VK_EXEC_UPD_SNAPS];   // vk_usnap_drops at the start of the pass of each update snapshot
 static uint64_t par_ttb[VK_EXEC_UPD_SNAPS];   // vk_texture_takebacks at the start of the pass of each update snapshot
+static VkDlssJitterView par_jit[VK_EXEC_UPD_SNAPS];   // the upscaler's jitter for the pass of each update snapshot
 static uint64_t par_t0;
 static volatile int64_t par_rec[2][3];          // slices recorded by the submitting thread [0] and workers [1]: count, draws, ns
 static volatile int64_t par_slow[2], par_slow_ns, par_slow_draws;   // slices over 1 ms by each, the longest and its draws
@@ -2257,6 +2258,7 @@ static int par_start(VkExec *ex) {
     par_pass_take(&par_pass[PC.upd], ex);
     par_usd[PC.upd] = vk_usnap_drops();   // the uniform copies as of the pass's start (vk_usnap_view)
     par_ttb[PC.upd] = vk_texture_takebacks();   // non-waiting render-target takebacks before this pass (vk_texture_view)
+    vk_dlss_jitter_take(ex->depth.image, &par_jit[PC.upd]);   // its draws' jitter, before the evaluation moves it
     vk_exec_draw_slices_begin(par_nworkers + 1, PC.upd);   // the pass's slices read the inline uniform updates noted so far
     vk_exec_draw_twins_snap(ex, PC.upd, twins);            // and the depth twins copied above
     uint32_t *x = par_expect(par_piece_key(sig, 0), 0);
@@ -2510,6 +2512,7 @@ static void par_record(int i, ParPool *pp, VkExec *w, struct DrawCtx *dc) {
     vk_exec_draw_slice_view(dc, PC.supd[i]);
     vk_usnap_view(par_usd[PC.supd[i]] + 1);   // the drops made before the pass began
     vk_texture_view(par_ttb[PC.supd[i]] + 1);   // hide non-waiting takebacks made after the pass began
+    vk_dlss_jitter_view(&par_jit[PC.supd[i]]);   // the jitter as of the pass's start (vk_dlss.c vk_dlss_jitter_take)
     par_slice = 1, par_hazard = 0, par_ntw = 0;
     VkSyncNote *note = vk_sync_slice_note_begin(PC.snote[i]);   // not the part's note, which the replay keeps writing
     vk_mem_count_quiet(1), vk_usnap_quiet(1);
@@ -2524,6 +2527,7 @@ static void par_record(int i, ParPool *pp, VkExec *w, struct DrawCtx *dc) {
     par_slice = 0;
     vk_sync_slice_note_end();
     vk_mem_count_quiet(0), vk_usnap_quiet(0), vk_usnap_view(0), vk_texture_view(0);
+    vk_dlss_jitter_view(NULL);
     if (vkEndCommandBuffer(cb) != VK_SUCCESS) rt_fatal("vk: secondary command buffer end failed");
     par_out[i] = (ParOut){{pp, cb}, w->fb_dirty, w->recorded, par_hazard, w->views, w->nviews, note, par_ntw};
     memcpy(par_out[i].tw, par_tw, sizeof par_tw);
