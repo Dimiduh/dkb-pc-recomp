@@ -208,6 +208,8 @@
 # changes), recommended (from your GPU memory, RAM and processors) or 1 Minimum, 2 Low, 3 Medium, 4 High, 5 Ultra
 # (docs/dkb-testing.md). A key you set here wins over it. Read at start.
 # preset = custom
+# auto chooses mip levels for the upscaled size with a temporal upscaler below full scene resolution. Restart to apply.
+# lod_bias = off
 # Sharpening of the finished picture, 0 (off) to 100, at any window size, the game resolution's size included, and on the
 # game's own HDR picture too. Takes effect at once.
 # sharpness = 80
