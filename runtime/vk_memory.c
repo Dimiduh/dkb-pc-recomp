@@ -2585,6 +2585,7 @@ int vk_mirror_on;
 static int mirror_verify;
 static int mirror_sparse;
 static int mirror_gap = 2;             // pre-snap: hot pools at most this many 2 MiB regions apart share one query
+static int64_t mirror_budget_mib;      // DKB_MIRROR_BUDGET (mirror_ceiling), read once in mirror_mode: -1 auto, 0 none
 static int mirror_presnap = 8;         // pre-snap: longest submission period predicted (DKB_MIRROR_PRESNAP, presnap_wanted)
 static int mirror_own = 1;             // DKB_MIRROR_OWN: mirror_sync skips the pages own_chunk notes (rt_knob mode)
 static PoolRec **mlist;                // pool_lock: mirrored pools by import_lo
@@ -2679,6 +2680,12 @@ static void mirror_mode(int discrete, uint32_t vendor) {
             rt_log("mem: pages the mirrors' own GPU writes stamped are copied in again%s (DKB_MIRROR_OWN=%s)",
                    mirror_own == 2 ? " in the A blocks" : "", mirror_own == 2 ? "ab" : "0");
     }
+    const char *mb = cfg_get("DKB_MIRROR_BUDGET");
+    const long long amount = mb ? strtoll(mb, NULL, 10) : 0;
+    mirror_budget_mib = mb && !strcmp(mb, "auto") ? -1 : amount > 0 ? amount : 0;
+    if (vk_mirror_on && mirror_budget_mib)
+        rt_log("vk: mirrors are limited to %s%s of VRAM in all (DKB_MIRROR_BUDGET)",
+               mirror_budget_mib < 0 ? "a share" : mb, mirror_budget_mib < 0 ? "" : " MiB");
     const char *g = cfg_get("DKB_MIRROR_GAP");
     mirror_gap = g && *g ? atoi(g) : 2;
     if (mirror_gap < 0) mirror_gap = 0;
@@ -3128,16 +3135,10 @@ static void refuse(PoolRec *r, int why, const char *what) {
 // small card. Unset: none, mirrors are made first come, first served until the device is nearly full (the check in
 // mirror_create). "auto": the rule of mirror_budget.h, a quarter of the card and at most 3 GiB, or an eighth on a card
 // of 4.5 GiB or less. A number sets the ceiling in MiB. A pool refused here is read by the GPU from host memory. The
-// runtime uses the device-local budget as its estimate of the card's capacity.
+// runtime uses the device-local budget as its estimate of the card's capacity. The setting is read once, at the
+// device's creation (mirror_mode), before any mirror is made.
 static uint64_t mirror_ceiling(uint64_t vram) {
-    static int64_t mib = -2;   // -2 unread, -1 auto, 0 none
-    if (mib == -2) {
-        const char *e = cfg_get("DKB_MIRROR_BUDGET");
-        const long long amount = e ? strtoll(e, NULL, 10) : 0;
-        mib = e && !strcmp(e, "auto") ? -1 : amount > 0 ? amount : 0;
-        if (mib) rt_log("vk: mirrors are limited to %s%s of VRAM in all (DKB_MIRROR_BUDGET)", mib < 0 ? "a share" : e,
-                        mib < 0 ? "" : " MiB");
-    }
+    const int64_t mib = mirror_budget_mib;
     if (!mib) return UINT64_MAX;
     if (mib > 0) return (uint64_t)mib <= (UINT64_MAX >> 20) ? (uint64_t)mib << 20 : UINT64_MAX;
     return mirror_budget_auto(vram);
