@@ -2082,7 +2082,6 @@ static WbPage *wb_find(uint64_t page, int insert) {
     return wb_find(page, insert);
 }
 
-// wb_lock held: the page gets what it is owed and is open for a while.
 // A lazy range the last batch left wholly sealed, with its bytes owed, is the same this time unless one of its pages
 // was opened since: wb_gen counts the openings by 2 MiB region (hashed), and the range keeps the counts it saw. A hit
 // spares the walk over the range's pages (a lookup and an owed-range merge each) where the game's shaders rewrite the
@@ -2098,6 +2097,7 @@ static inline WbRange *wb_range_of(uint64_t lo, uint64_t hi) {
     return &wb_range[((lo >> 4) * 0x9E3779B97F4A7C15ull ^ hi * 0xC2B2AE3D27D4EB4Full) >> 40 & (WB_RANGE_N - 1)];
 }
 
+// wb_lock held: the page gets what it is owed and is open for a while.
 static void wb_open_page(WbPage *e) {
     if (e->state != WB_SEALED) return;
     ++*wb_gen_of(e->page);
