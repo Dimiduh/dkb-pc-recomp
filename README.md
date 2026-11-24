@@ -25,11 +25,19 @@ As far as we know, no other static recompilation of a Switch 2 game is public.
 ## Status
 
 **Playable on recent NVIDIA cards, well past the first level.** Players report runs through layer -101, sublayer 200,
-the Glacier layer, Snow World (Layer 500), the Resort and the Tempest layer. The current release is 0.5.1
-(20 November), a fix for 0.5.0's NVIDIA shader cache on Windows (#437). The [latest release](https://github.com/Lucas-blip-png/dkb-pc-recomp/releases/latest) carries
+the Glacier layer, Snow World (Layer 500), the Resort and the Tempest layer. The current release is 0.5.2
+(24 November): the TOTK to DKB rename of settings and files, the Feast Layer black shards (#439), 4 GB cards (#437)
+and Switch 2 controllers on USB. The [latest release](https://github.com/Lucas-blip-png/dkb-pc-recomp/releases/latest) carries
 `DKB-Launcher.exe`, one small Windows file that installs the build tools, builds the game from your own dump (`.nup`,
 `.nx` or folders) and updates in place with one click. It also has the setup zip, a Linux AppImage, and a
 macOS preview: [docs/installer.md](docs/installer.md).
+
+New in 0.5.2:
+- Settings are `DKB_*` and files `dkb.*`; `TOTK_*` variables are ignored, and `totk.ini` is copied to `dkb.ini` once.
+- Fixes for the black shards on the Feast Layer muck (#439), the missing grass on Linux (#462), nearly full 4 GB cards
+  (#437) and GPUs that share system memory (#497).
+- Draw merge on by default (#468), 4 replay threads from 6 logical processors, Switch 2 controllers on USB without
+  Steam (#496), `pad_background` (#502) and `pad_shortcuts` (#516).
 
 New in 0.5.0:
 - Performance presets (`preset = 1..5` or `recommended`, F1 menu "Preset") and expected frame rates per hardware tier:
