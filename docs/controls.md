@@ -208,8 +208,9 @@ frequencies need Bluetooth: SDL's driver takes no raw rumble data). On Linux dis
 libusb. On Windows the setup release builds its `SDL3.dll` with libusb and puts `libusb-1.0.dll` beside `dkb.exe`
 (`tools/make_release.py` `build_sdl`, #496): without them a Switch 2 controller on USB, such as the GameCube
 controller (057e:2073), is listed as a gamepad but sends nothing unless Steam Input wakes it. libusb reaches the
-controller's second USB interface only through the WinUSB driver: if the controller is still silent, put that
-interface on WinUSB once per controller with Zadig (Options > List All Devices, the controller's **Interface 1**,
+controller's second USB interface only through the WinUSB driver. Windows usually puts it there by itself (a GameCube
+controller on Windows 10 played with no other step, #496); if the controller is still silent, put that interface on
+WinUSB once per controller with Zadig (Options > List All Devices, the controller's **Interface 1**,
 WinUSB, Replace Driver; never Interface 0). A developer build with MSYS2's SDL3 has no libusb (neither has the upstream
 Windows SDL3 release); it needs an SDL3 built with `-DSDL_HIDAPI_LIBUSB=ON -DSDL_HIDAPI_LIBUSB_SHARED=ON` and
 `libusb-1.0.dll` beside `dkb.exe`, such as the release's `bin/`. These controllers never take the Switch 1 HD packet
