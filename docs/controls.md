@@ -187,12 +187,15 @@ from seedds/mkw-neo.
 SDL 3.4 drives the Switch 2 controllers over USB (`SDL_hidapi_switch2.c`) when it is built with libusb: buttons,
 sticks, gyro and two-motor rumble, which SDL plays as the controller's own rumble at fixed frequencies (the game's HD
 frequencies need Bluetooth: SDL's driver takes no raw rumble data). On Linux distribution SDL3 packages usually have
-libusb. On Windows SDL loads `libusb-1.0.dll` and needs the controller's second USB interface on the WinUSB driver
-(once per controller with Zadig: Options > List All Devices, the controller's **Interface 1**, WinUSB, Replace Driver;
-never Interface 0). Neither the MSYS2 nor the upstream Windows SDL3 build has libusb, so a Windows build needs an SDL3
-built with `-DSDL_HIDAPI_LIBUSB=ON -DSDL_HIDAPI_LIBUSB_SHARED=ON` and `libusb-1.0.dll` beside `dkb.exe` (as
-mkw-recomp's `tools/build/windeps.py` does). These controllers never take the Switch 1 HD packet (`rumble_hd`), so
-they stay on the two-motor path even with `rumble_hd = auto`.
+libusb. On Windows the setup release builds its `SDL3.dll` with libusb and puts `libusb-1.0.dll` beside `dkb.exe`
+(`tools/make_release.py` `build_sdl`, #496): without them a Switch 2 controller on USB, such as the GameCube
+controller (057e:2073), is listed as a gamepad but sends nothing unless Steam Input wakes it. libusb reaches the
+controller's second USB interface only through the WinUSB driver: if the controller is still silent, put that
+interface on WinUSB once per controller with Zadig (Options > List All Devices, the controller's **Interface 1**,
+WinUSB, Replace Driver; never Interface 0). A developer build with MSYS2's SDL3 has no libusb (neither has the upstream
+Windows SDL3 release); it needs an SDL3 built with `-DSDL_HIDAPI_LIBUSB=ON -DSDL_HIDAPI_LIBUSB_SHARED=ON` and
+`libusb-1.0.dll` beside `dkb.exe`, such as the release's `bin/`. These controllers never take the Switch 1 HD packet
+(`rumble_hd`), so they stay on the two-motor path even with `rumble_hd = auto`.
 
 ### Through a bridge program
 
