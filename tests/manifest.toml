@@ -992,6 +992,13 @@ area = "gfx"
 cmd = ["{python}", "tests/draw_vb_dynstate_test.py", "--cc", "{cc}", "--deps", "{deps}"]
 
 [[test]]
+name = "stick-spin"
+tier = 1
+area = "input"
+cmd = ["{python}", "tests/stick_spin_test.py", "--cc", "{cc}"]
+paths = ["runtime/frame_rate.c", "recomp/patches-dkb458752.txt"]
+
+[[test]]
 name = "window-filter"
 tier = 1
 area = "gfx"
