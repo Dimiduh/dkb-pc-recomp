@@ -6,6 +6,7 @@
 [![Help wanted](https://img.shields.io/github/issues/Lucas-blip-png/dkb-pc-recomp/help%20wanted?label=help%20wanted)](https://github.com/Lucas-blip-png/dkb-pc-recomp/issues?q=is%3Aopen+label%3A%22help+wanted%22)
 [![Discussions](https://img.shields.io/github/discussions/Lucas-blip-png/dkb-pc-recomp)](https://github.com/Lucas-blip-png/dkb-pc-recomp/discussions)
 [![Ko-fi](https://img.shields.io/badge/Ko--fi-support%20the%20work-ff5e5b?logo=ko-fi&logoColor=white)](https://ko-fi.com/lucasblippng)
+[![Discord](https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white)](https://discord.gg/kCkDsqu37y)
 
 **DKB Recomp** is a static recompilation of *Donkey Kong Bananza* (Nintendo Switch 2, 2025) into a native Windows
 x86-64 application with a Vulkan renderer. There is no emulator at run time: the game's ARM64 code is translated to C
@@ -127,7 +128,8 @@ Your first contribution, step by step:
 Before you open a pull request, read [CONTRIBUTING.md](CONTRIBUTING.md). Its hard rule: nothing that came out of the
 game goes into the repository, not in commits, issues or pull requests. Run `python tools/check_content.py --staged`
 before committing; CI runs the same check. Questions go to
-[Discussions](https://github.com/Lucas-blip-png/dkb-pc-recomp/discussions). Everyone taking part follows the
+[Discussions](https://github.com/Lucas-blip-png/dkb-pc-recomp/discussions) or the
+[Discord server](https://discord.gg/kCkDsqu37y) (#help, #bugs, and #brasil in Portuguese). Everyone taking part follows the
 [code of conduct](CODE_OF_CONDUCT.md).
 
 ## Support the project
