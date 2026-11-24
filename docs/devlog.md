@@ -3,6 +3,22 @@
 Milestones of DKB Recomp, newest first. The plan they follow is [bananza-plan.md](bananza-plan.md); open work is in
 the [roadmap issue](https://github.com/Lucas-blip-png/dkb-pc-recomp/issues/10).
 
+## 24 November 2026
+
+- **Release 0.5.2** (a58af057): settings and files renamed from TOTK to DKB, draw merge on by default (#468), Switch
+  2 controllers on USB (#496), `pad_background` (#502) and `pad_shortcuts` (#516).
+- **4 GB cards** (cbe2a0a7, #437). With `DKB_VRAM_LIMIT=4096` on the 1.0.0 tutorial cave (RTX 5060 Ti, 1920x1080),
+  208 small pools were left imported and the GPU took 16.3 ms a frame (52.4 fps). Small mirrors now keep a reserve of
+  a 32nd of the budget instead of an eighth: none is left imported, 8.2 ms and 58.6 fps.
+- **4 to 6 thread CPUs** (3aa0fb85). Same scene, the process held to 6 logical processors: 3 recording threads gave
+  55.7-56.3 fps, 4 give 58.6-58.8, so big passes now take 4 threads from 6. On 4 logical processors: 37.6 fps with no
+  slicing, 49.3 with 3 threads.
+- **Commit on NVIDIA** (986cf271). Of the about 3 GB of "other private" commit, 3.3 GiB are write-combined pages that
+  follow device-local VRAM: the driver charges VRAM allocations to the process commit. Not a leak of ours.
+- **Feast Layer black shards** (9ba00c27, #439): the Ampere lowering stored a 64-bit zero into the same register pair
+  it summed the address into, so the muck mesh's normals started from address bits. Missing grass on Linux (#462):
+  #517 by roverdrubber.
+
 ## 13 November 2026
 
 - **A heavy scene, measured.** A player's recording in layer -101 (RTX 5060 Ti, 1920x1080, 60 fps limit, first
