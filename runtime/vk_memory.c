@@ -1673,13 +1673,13 @@ static uint64_t page_hi(const PoolRec *r) { return (r->lo + r->size + 0xfff) & ~
 //   frame (the plant instance pools filled with repeats and the open ground lost its grass, issue #462).
 // DKB_SHADOW=1/0 forces the mode on or off; the default is on for Linux, off where importing is cheap (Windows, and
 // MoltenVK, which imports host memory without Linux's write-watch and page re-protection).
-typedef struct { uint64_t lo, hi; uint32_t sync; } SRange;   // sync: s_syncs_done when the write was noted
+typedef struct { uint64_t lo, hi, sync; } SRange;   // sync: s_syncs_done when the write was noted
 static PlatMutex shadow_lock = PLAT_MUTEX_INIT;   // after pool_lock; before gen_lock
 static PoolRec **stouch;                          // shadow_lock: pools resolved since the last sync
 static int nstouch, cstouch;
 static SRange *spend;                             // shadow_lock: GPU writes recorded and not copied back yet, in order
 static int nspend, cspend;
-static uint32_t s_syncs_done;                     // shadow_lock: vk_mem_shadow_sync calls so far
+static uint64_t s_syncs_done;                     // shadow_lock: vk_mem_shadow_sync calls so far
 // shadow_lock: sorted union of the writes in spend of parts already submitted (noted before the last sync)
 static SRange *sblocked;
 static int nsblocked, csblocked;
