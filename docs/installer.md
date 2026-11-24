@@ -50,7 +50,7 @@ library cannot build Bananza. A Windows tool package supplies:
 ```
 <tools>/llvm/bin/clang.exe, llvm-ar.exe, llvm-windres.exe
 <tools>/runtime/deps/include/, lib/       Vulkan, VMA, SDL3, Opus, libvpx and zstd dependencies
-<tools>/bin/ninja.exe, SDL3.dll, libopus-0.dll
+<tools>/bin/ninja.exe, SDL3.dll, libusb-1.0.dll (optional), libopus-0.dll
 ```
 
 The package contains tools only, and may be kept separately from this checkout. No machine-specific path is built
@@ -331,7 +331,7 @@ The install folder (`main.c` `portable_paths()` reads this layout; it stays port
 
 ```
 <install folder>/
-  dkb.exe, SDL3.dll, libopus-0.dll, dkb_xlate.exe
+  dkb.exe, SDL3.dll, libusb-1.0.dll, libopus-0.dll, dkb_xlate.exe
   dkb.ini                       language; the other keys as commented defaults (dkb.ini.example)
   exefs/, romfs/                 extracted from the player's files
   profile/                       saves
@@ -413,7 +413,7 @@ python/               Python 3.14.9 embeddable + numpy, lz4, cryptography, cffi,
 recomp/, tools/       the lifter and the build, extraction and shader scripts the steps run (copied from the repo)
 llvm/                 llvm-mingw, x86_64-only subset (Apache-2.0 with LLVM exception; mingw-w64 parts permissive)
 runtime/              libdkbrt.a and the headers the generated code and modules.c/romfs.c/patches.c include
-bin/                  dkb_xlate.exe, hactool.exe, SDL3.dll, libopus-0.dll, ninja.exe
+bin/                  dkb_xlate.exe, hactool.exe, SDL3.dll, libusb-1.0.dll, libopus-0.dll, ninja.exe
 data/                 shader_list.tsv (MacNativeGames, MIT)
 THIRD_PARTY_NOTICES.md
 LICENSE, LICENSE-MIT  the project's terms (GPL-3.0-or-later; MIT for the files that came from TotK Recomp)
@@ -427,7 +427,11 @@ install time; `bin/` has no `hactool.exe` (Bananza reads plain ExeFS and RomFS f
 `build_xlate.py`, `dkb_pack_romfs.py`, `dkb_shader_census.py`, `extract_nup.py`, `vendor/ryujinx` and `xlate` (the translator is built
 at install); the lifted tree is `dkb100` instead of `v121`/`v143`.
 
-- SDL3 comes from the upstream release, not MSYS2: MSYS2's DLL imports the LGPL libiconv.
+- SDL3 is built from the upstream source release with the folder's llvm-mingw (`make_release.py` `build_sdl`, which
+  needs CMake), not taken from MSYS2 or the upstream Windows release: MSYS2's DLL imports the LGPL libiconv, and
+  neither has libusb, which SDL needs to start the Switch 2 controllers over USB (#496). The build loads
+  `libusb-1.0.dll` (MSYS2, LGPL-2.1, unmodified, beside it) at run time; `make_release.py` stops when the
+  configuration has no libusb or when either DLL imports anything but Windows' own DLLs.
 - Every bundled third-party piece gets a row in `THIRD_PARTY_NOTICES.md`.
 - The release contains nothing game-derived; `make_release.py` runs `tools/check_content.py` over the folder before it
   finishes.
