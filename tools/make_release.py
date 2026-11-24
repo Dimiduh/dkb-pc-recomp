@@ -80,6 +80,9 @@ PINS = {
                  '9c75cf16330322c217dedd2e0609f1124f1b54b8633e763467b4684d0f4334a3'),
     'libusb': (MSYS2 + 'mingw-w64-ucrt-x86_64-libusb-1.0.30-1-any.pkg.tar.zst',
                '20106e6ff31b4581bb111b28a68b6b79a50dc3e5fc3033944e1c4b3ff8cd812e'),
+    # libusb is LGPL-2.1: its MSYS2 source package goes into licenses/ beside the DLL it built
+    'libusb-src': ('https://repo.msys2.org/mingw/sources/mingw-w64-libusb-1.0.30-1.src.tar.zst',
+                   'e1052bbff0fe7a7ce25b847ca5f69d7ecafe1c644a3d07f971e770c3a44724f6'),
     'ninja': ('https://github.com/ninja-build/ninja/releases/download/v1.13.2/ninja-win.zip',
               '07fc8261b42b20e71d1720b39068c2e14ffcee6396b76fb7a795fb460b78dc65'),
     'opus': (MSYS2 + 'mingw-w64-ucrt-x86_64-opus-1.6.1-2-any.pkg.tar.zst',
@@ -420,6 +423,7 @@ def collect_licenses(out):
         (unpack('vma') / 'ucrt64' / 'share' / 'licenses' / 'VulkanMemoryAllocator' / 'LICENSE', 'vulkan-memory-allocator-LICENSE.txt'),
         (unpack('sdl3-src') / f'SDL3-{SDL_VERSION}' / 'LICENSE.txt', 'SDL3-LICENSE.txt'),
         (unpack('libusb') / 'ucrt64' / 'share' / 'licenses' / 'libusb' / 'COPYING', 'libusb-COPYING.txt'),
+        (fetch('libusb-src'), 'mingw-w64-libusb-1.0.30-1.src.tar.zst'),
         (unpack('zstd') / 'ucrt64' / 'share' / 'licenses' / 'zstd' / 'LICENSE', 'zstd-LICENSE.txt'),
         (ROOT / 'runtime' / 'shaders' / 'ffx' / 'LICENSE.txt', 'FidelityFX-FSR-LICENSE.txt'),
     ]
