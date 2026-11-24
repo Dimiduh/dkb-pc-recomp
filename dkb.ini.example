@@ -310,6 +310,9 @@
 # Default: Plus + Minus opens settings. Opt in to a physical Start + Back fullscreen hold instead (0.5 s).
 # Guide/Home and keyboard F1 still open settings in either mode.
 # pad_fullscreen_hold = 0
+# 0: the controller has no shortcuts (no Plus + Minus, Guide/Home or L3 + R3) and every button goes to the game, e.g. on
+# Steam Deck where Steam uses them. Keyboard F1 still opens settings.
+# pad_shortcuts = 1
 # 1: the gamepads keep playing while another window is in front (the Steam overlay, a browser). 0: they count only
 # while the game window is in front, as the keyboard does; a button still held when the window comes back counts once
 # released. Changes take effect at once.

@@ -128,6 +128,10 @@ By default, the original immediate Minus + Plus settings shortcut remains availa
 Enable **Fullscreen hold shortcut** in F1 > Controls > Controller (`pad_fullscreen_hold = 1`, or
 `DKB_PAD_FULLSCREEN_HOLD`) to replace that combination with fullscreen.
 The setting defaults to off and takes effect immediately. Guide / Home and keyboard F1 work in either mode.
+
+Turn off **Controller shortcuts** in the same page (`pad_shortcuts = 0`, or `DKB_PAD_SHORTCUTS`) to remove every controller
+shortcut (settings, performance overlay, fullscreen hold): all buttons go to the game and only keyboard F1 opens settings.
+Useful on Steam Deck, whose own menu shortcuts use these buttons. The default is on.
 In Steam Deck Game Mode, enabling the fullscreen hold leaves only keyboard F1 to open settings when Steam intercepts Guide / Home.
 
 The opt-in fullscreen hold uses the selected controller's physical SDL Start and Back buttons (Options + Create on DualSense), independently of button remapping. It fires once per hold; release both buttons before repeating. Once the buttons overlap, neither reaches the game until both are released. An individual button pressed before the combination forms still works normally. Switching or reconnecting controllers does not inherit a held shortcut.

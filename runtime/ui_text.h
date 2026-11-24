@@ -222,6 +222,7 @@ typedef enum {
     UI_MENU_PAD_CONNECTED, UI_MENU_PAD_WAITING, UI_MENU_PAD_NONE,
     UI_MENU_PAD_SAVED,
     UI_MENU_PAD_FULLSCREEN_HOLD, UI_MENU_PAD_FULLSCREEN_HOLD_DESC,
+    UI_MENU_PAD_SHORTCUTS, UI_MENU_PAD_SHORTCUTS_DESC,
     UI_MENU_PAD_BACKGROUND, UI_MENU_PAD_BACKGROUND_DESC,
     UI_MENU_SHORTCUT_SETTINGS_COMBO_DESC,
     // The start-up screen (splash_model.c): the step names in capitals, the count and time-left formats, the tips

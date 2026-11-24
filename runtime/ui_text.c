@@ -43,6 +43,10 @@ static const char *const text_en[UI_TEXT_COUNT] = {
         "Newly connected controllers take over automatically. If the active controller disconnects, another available controller takes over.\n\n"
         "Manual choices apply immediately and are saved for startup. Auto starts with the first available controller. Later connections can still take over.\n\n"
         "Keyboard and mouse remain available.",
+    [UI_MENU_PAD_SHORTCUTS] = "Controller shortcuts",
+    [UI_MENU_PAD_SHORTCUTS_DESC] = "On: Plus + Minus or Guide/Home opens settings, L3 + R3 steps the performance overlay.
+
+Off: the controller has no shortcuts and every button goes to the game (useful on Steam Deck, whose own shortcuts use these buttons). Keyboard F1 still opens settings.",
     [UI_MENU_PAD_FULLSCREEN_HOLD] = "Fullscreen hold shortcut",
     [UI_MENU_PAD_FULLSCREEN_HOLD_DESC] = "Off: Plus + Minus opens or closes settings.\n\nOn: hold Plus + Minus for 0.5 seconds to toggle fullscreen instead.\n\nGuide/Home and keyboard F1 remain available in either mode.",
     [UI_MENU_SHORTCUT_SETTINGS_COMBO_DESC] = "Press both displayed Plus and Minus bindings together to open or close settings.\n\nThis shortcut follows the current button bindings.\n\nKeyboard equivalent: F1.",

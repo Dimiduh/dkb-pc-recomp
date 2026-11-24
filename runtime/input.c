@@ -789,7 +789,7 @@ static int pad_physical(uint8_t pd[PAD_COUNT]) {
     SDL_JoystickID id = SDL_GetGamepadID(pad);
     if (pad_fullscreen_gate.device != id) pad_fullscreen_pending = 0;
     uint64_t shortcut = (pd[PAD_START] ? 1ull << B_PLUS : 0) | (pd[PAD_BACK] ? 1ull << B_MINUS : 0);
-    if (cfg_bool("DKB_PAD_FULLSCREEN_HOLD"))
+    if (cfg_bool("DKB_PAD_SHORTCUTS") && cfg_bool("DKB_PAD_FULLSCREEN_HOLD"))
         pad_fullscreen_pending |= input_hold_gate(&pad_fullscreen_gate, id, plat_now_ns(), &shortcut);
     else {
         pad_fullscreen_gate = (InputHoldGate){0};
@@ -834,7 +834,7 @@ static void poll_merged(uint64_t *buttons, int32_t *lx, int32_t *ly, int32_t *rx
         if (state == 1) {
             pad_read(&b, sl, sr);
             // The guide button (Xbox, PS) opens or closes the menu on its press edge and is no game input (TotK Recomp #826).
-            int g = !pad_dropped && pad && SDL_GamepadConnected(pad) && SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_GUIDE);
+            int g = cfg_bool("DKB_PAD_SHORTCUTS") && !pad_dropped && pad && SDL_GamepadConnected(pad) && SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_GUIDE);
             guide_toggle = g && !guide_held;
             guide_held = g;
         }
@@ -870,14 +870,15 @@ static void poll_merged(uint64_t *buttons, int32_t *lx, int32_t *ly, int32_t *rx
     int32_t st[4] = {sl[0], sl[1], sr[0], sr[1]};
     // Keep the original merged Minus+Plus settings shortcut unless fullscreen is opted in.
     int toggle = 0;
-    if (!cfg_bool("DKB_PAD_FULLSCREEN_HOLD"))
+    int shortcuts = cfg_bool("DKB_PAD_SHORTCUTS");   // 0: the controller has no shortcuts, every button goes to the game
+    if (shortcuts && !cfg_bool("DKB_PAD_FULLSCREEN_HOLD"))
         toggle = input_menu_gate(&combo_held, menu_is_open(), &b, st);
     else {
         combo_held = 0;
         if (menu_is_open()) { b = 0; st[0] = st[1] = st[2] = st[3] = 0; }
     }
     static int overlay_held;   // L3+R3 step the performance overlay (F10)
-    int overlay = input_overlay_gate(&overlay_held, &b);
+    int overlay = shortcuts ? input_overlay_gate(&overlay_held, &b) : 0;
     sl[0] = st[0], sl[1] = st[1], sr[0] = st[2], sr[1] = st[3];
     plat_mutex_unlock(&lock);
     if (fullscreen) gfx_window_toggle_fullscreen();
