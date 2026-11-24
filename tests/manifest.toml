@@ -764,6 +764,12 @@ area = "shaders"
 cmd = ["{python}", "tests/native_iadd_uniform_carry_test.py", "--cxx", "{cxx}", "--out", "{out}"]
 
 [[test]]
+name = "native-store-zero-pair"
+tier = 1
+area = "shaders"
+cmd = ["{python}", "tests/native_store_zero_pair_test.py", "--cxx", "{cxx}", "--out", "{out}"]
+
+[[test]]
 name = "native-isetp-ex"
 tier = 1
 area = "shaders"
