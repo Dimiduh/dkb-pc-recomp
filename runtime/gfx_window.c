@@ -71,9 +71,9 @@ static void exit_watchdog(void *arg) {
 void gfx_exit_release(void) {
     if (plat_cas32(&g_closed, 1, 0) != 0)
         for (;;) plat_sleep_ms(1000);
-    input_shutdown();   // RenHDrum's pads released before the process ends (ExitProcess runs no atexit handlers)
     // A hung GPU or driver present must not keep the process alive: end it after a grace period regardless.
     plat_thread_spawn(exit_watchdog, NULL, "exitwd", 0);
+    input_shutdown();   // RenHDrum's pads released before the process ends (ExitProcess runs no atexit handlers)
     // The queued present goes out first, without the start lock: the thread presenting it may be waiting for that lock
     // in gfx_window_start (or for the window thread, which a resize holds there).
     gfx_backend()->exit_wait();

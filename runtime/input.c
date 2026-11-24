@@ -35,7 +35,8 @@ static PlatMutex lock = PLAT_MUTEX_INIT;
 static int state;                    // 0 not started, 1 running, -1 disabled or SDL failed
 static int hd_sent, hd_failed;   // under lock: HD packets went out; a disconnect followed them (#363)
 static SDL_Gamepad *pad;
-static int hd_loaded;                // renhdrum.dll loaded and its version accepted (RenHDrum, Windows only)
+static volatile int32_t hd_loaded;   // renhdrum.dll loaded and its version accepted (RenHDrum, Windows only)
+static volatile int32_t hd_enabled = -1;   // last input_hd_set_enabled value, -1 before the first call
 static uint64_t next_scan;
 static unsigned pad_device_seen;
 static InputHoldGate pad_fullscreen_gate;
@@ -534,11 +535,18 @@ void hos_log(const char *fmt, ...) {
 int64_t hos_now_ns(void) { return (int64_t)plat_now_ns(); }
 int hos_sdl_init(uint32_t subsystems) { return SDL_InitSubSystem(subsystems) ? 1 : 0; }
 
-static void hd_attach(SDL_Gamepad *p) { if (hd_loaded) rh_attach(p); }
-static void hd_detach(SDL_Gamepad *p) { if (hd_loaded) rh_detach(p); }
+static int hd_is_loaded(void) { return plat_cas32(&hd_loaded, 0, 0); }
+static void hd_attach(SDL_Gamepad *p) { if (hd_is_loaded()) rh_attach(p); }
+static void hd_detach(SDL_Gamepad *p) { if (hd_is_loaded()) rh_detach(p); }
 // Under lock: RenHDrum plays this pad's vibration (a DualSense, Switch Pro Controller or Xbox pad it claimed), so none of
 // the paths below may drive it as well.
-static int pad_hd_claimed(void) { return hd_loaded && pad && rh_is_active(pad); }
+static int pad_hd_claimed(void) {
+    if (!hd_is_loaded() || !pad || !rh_is_active(pad)) return 0;
+    // rh_is_active is 1 for a wired DualSense even while its speaker stream is closed, and rh_vibration plays only
+    // once the pad is claimed. Only `pad` is ever passed to rh_attach, so any claimed slot is this pad's.
+    for (int i = 0; i < 8; i++) if (rh_pad_claimed(i)) return 1;
+    return 0;
+}
 #else
 static void hd_attach(SDL_Gamepad *p) { (void)p; }
 static void hd_detach(SDL_Gamepad *p) { (void)p; }
@@ -712,8 +720,10 @@ static void start(void) {
         if (!strcmp(cfg_value("DKB_RENHDRUM"), "off")) rt_log("input: RenHDrum off (renhdrum = off)");
         else {
             rh_set_switch_gen(rt_game_version ? 1 : 2);   // Switch 2 mode for Bananza
-            hd_loaded = rh_load();
-            rt_log(hd_loaded ? "input: RenHDrum loaded (%s)" : "input: RenHDrum not used (%s)", rh_status_line());
+            plat_xchg32(&hd_loaded, rh_load());
+            int en = plat_cas32(&hd_enabled, -1, -1);
+            if (hd_is_loaded() && en >= 0) rh_set_enabled(en);   // a setting applied before the library loaded
+            rt_log(hd_is_loaded() ? "input: RenHDrum loaded (%s)" : "input: RenHDrum not used (%s)", rh_status_line());
         }
     }
 #endif
@@ -1130,7 +1140,7 @@ static int pad_s2(void) {
 
 int input_hd_vibration(int side, float al, float fl, float ah, float fh) {
 #ifdef _WIN32
-    return hd_loaded ? rh_vibration(side, al, fl, ah, fh) : 0;
+    return hd_is_loaded() ? rh_vibration(side, al, fl, ah, fh) : 0;
 #else
     (void)side; (void)al; (void)fl; (void)ah; (void)fh;
     return 0;
@@ -1139,7 +1149,7 @@ int input_hd_vibration(int side, float al, float fl, float ah, float fh) {
 
 void input_hd_permit(int on) {
 #ifdef _WIN32
-    if (hd_loaded) rh_permit(on);
+    if (hd_is_loaded()) rh_permit(on);
 #else
     (void)on;
 #endif
@@ -1147,7 +1157,8 @@ void input_hd_permit(int on) {
 
 void input_hd_set_enabled(int on) {
 #ifdef _WIN32
-    if (hd_loaded) rh_set_enabled(on);
+    plat_xchg32(&hd_enabled, on);
+    if (hd_is_loaded()) rh_set_enabled(on);
 #else
     (void)on;
 #endif
@@ -1155,9 +1166,10 @@ void input_hd_set_enabled(int on) {
 
 void input_shutdown(void) {
 #ifdef _WIN32
+    if (!hd_is_loaded()) return;
     plat_mutex_lock(&lock);   // not the crash path: it may stop pads the input thread is using
-    if (hd_loaded) rh_shutdown();
-    hd_loaded = 0;
+    rh_shutdown();
+    plat_xchg32(&hd_loaded, 0);
     plat_mutex_unlock(&lock);
 #endif
 }

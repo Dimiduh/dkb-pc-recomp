@@ -456,6 +456,8 @@ one line, `input: RenHDrum loaded (...)` or `input: RenHDrum not used (<reason>)
   pads get no vibration from the paths in docs/controls.md. Other pads (player 2, a Switch 2 controller over Bluetooth,
   an unsupported pad) are unchanged. `rumble = 0` or `rumble_strength = 0` silences RenHDrum too; its own settings are in
   `renhdrum.ini` next to the exe.
+- RenHDrum sends HD packets to any 057E:2009 pad regardless of `rumble_hd`; a third-party Switch Pro pad that drops with
+  `rumble_hd = auto` will do the same here, so set `renhdrum = off`.
 - The bridge is `runtime/third_party/renhdrum/` (MIT OR Apache-2.0, see THIRD_PARTY_NOTICES.md). It is Windows only;
   other systems build without it and keep the existing rumble.
 
