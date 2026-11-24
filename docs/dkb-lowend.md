@@ -33,6 +33,19 @@ reports 31 to 35 fps there with about 8,300 draws a frame), so treat it as a flo
 
 `DKB_APP_POOL` below 8 GiB makes the game crash at start (access violation reading 0xc8), so it is not a way to save memory.
 
+What "other private" holds (24 November, 1.0.0 tutorial cave, RTX 5060 Ti on driver 621.01, 1920x1080): at exit
+it was 4826 MiB next to 3192 MiB of device-local memory, and it grew with it (2286 next to 1206 at frame 600). A walk of
+the process's committed private memory (`VirtualQueryEx`, grouped by allocation) at 110 s found:
+
+- 3293 MiB of write-combined pages (`PAGE_READWRITE | PAGE_WRITECOMBINE`), mostly in 32 MiB allocations. They follow
+  the device-local total, so the NVIDIA driver on Windows charges VRAM allocations to the process commit as well. Every
+  MiB of VRAM the renderer keeps (mirrors, textures, headroom blocks) costs a MiB of commit on such a machine, and
+  `DKB_VRAM_LIMIT` lowers both.
+- About 1.3 GiB of plain read/write allocations: one of 526 MiB, a 256 MiB block (the host-cached VMA block of memory
+  type 3 the headroom allocates), 18 of 16 MiB, two of 64 MiB and smaller ones. The 526 MiB one is not identified yet.
+
+So on NVIDIA the commit that is not the guest heap is mostly the VRAM in use counted a second time, not a leak of ours.
+
 ## Thread knobs on 2 and 4 logical processors
 
 Same route, 60 s runs, one knob changed from the defaults at a time. Repeated runs of the same setting differ by about
