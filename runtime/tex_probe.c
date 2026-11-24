@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "cfg.h"
 #include "host.h"
 #include "nvn_api.h"
 #include "tex.h"
@@ -626,6 +627,10 @@ static int test_gpu(void) {
 }
 
 int probe_vkmem(void) {
+    // test_import checks a CPU-visible pool imported at vk_pool_init. The staged mirror (DKB_MIRROR_STAGED, auto: on
+    // with NVIDIA on Windows) leaves such a pool unimported until its first GPU use, so the probe turns it off unless
+    // it is set; nothing is saved to dkb.ini.
+    if (!cfg_get("DKB_MIRROR_STAGED")) cfg_set("DKB_MIRROR_STAGED", "0");
     if (test_deswizzle() || test_box() || test_astc() || test_formats()) return 1;
     printf("probe-vkmem: cpu part passed (%u deswizzle cases, %u astc blocks, formats: %u mapped, %u supported by the GPU, "
            "%u unsupported by the GPU, %u unmapped, %u with a fallback)\n",
