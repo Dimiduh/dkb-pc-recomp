@@ -1018,6 +1018,7 @@ static void rows_controller(void) {
     opt_toggle("DKB_SWITCH2", UI_MENU_SWITCH2, UI_MENU_SWITCH2_DESC);   // switch2.c, at the next start
     opt_slider("DKB_STICK_DEADZONE", UI_MENU_STICK_DEADZONE, 0, 50, UI_MENU_STICK_DEADZONE_DESC, 1, "%.0f %%");
     opt_toggle("DKB_PAD_FULLSCREEN_HOLD", UI_MENU_PAD_FULLSCREEN_HOLD, UI_MENU_PAD_FULLSCREEN_HOLD_DESC);
+    opt_toggle("DKB_PAD_BACKGROUND", UI_MENU_PAD_BACKGROUND, UI_MENU_PAD_BACKGROUND_DESC);
 }
 
 static void tab_controls(float scale) {
