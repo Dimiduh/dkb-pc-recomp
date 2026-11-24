@@ -565,6 +565,12 @@ area = "gfx"
 cmd = ["{python}", "tests/linux_pressure_test.py", "--cc", "{cc}"]
 
 [[test]]
+name = "mirror-budget"
+tier = 1
+area = "gfx"
+cmd = ["{python}", "tests/mirror_budget_test.py", "--cc", "{cc}"]
+
+[[test]]
 name = "sampler-book"
 tier = 1
 area = "gfx"

@@ -5071,7 +5071,7 @@ static void mirror_create(PoolRec *r, BigMirror *fill) {
     uint64_t t1 = qpc();
     uint64_t used, budget;
     int exact;
-    if (vk_mem_vram(&used, &budget, &exact) && used + n + budget / 8 > budget) {
+    if (vk_mem_vram(&used, &budget, &exact) && !mirror_fits(used, n, budget)) {
         char why[128];
         snprintf(why, sizeof why, "its %.1f MiB mirror does not fit the VRAM budget (%.0f of %.0f MiB in use)",
                  n / 1048576.0, used / 1048576.0, budget / 1048576.0);
