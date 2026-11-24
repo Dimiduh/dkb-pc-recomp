@@ -443,6 +443,24 @@ which were done and on what:
 - sound plays without crackling, and a controller works;
 - `--play DIR` starts the game, and running the setup again on the same folder updates it without rebuilding it all.
 
+## Detailed haptics with RenHDrum (optional, Windows)
+
+[RenHDrum](https://github.com/trzz1214/RenHDrum) plays the game's HD vibration on a DualSense (USB or Bluetooth HD
+haptics), a Switch Pro Controller (HD rumble) and an Xbox pad (four motors). Download `renhdrum.dll` from the RenHDrum
+v0.5.0 release and put it next to `dkb.exe`; nothing else is needed. The game ships without it. At start-up the log has
+one line, `input: RenHDrum loaded (...)` or `input: RenHDrum not used (<reason>)`.
+
+- `renhdrum = auto` (the default, `DKB_RENHDRUM`): use the library when it is present and its major.minor version matches
+  (0.5). `renhdrum = off` never loads it. A restart applies a change.
+- With the library loaded, the game's raw vibration values of player 1 go to RenHDrum for the pads it claims, and those
+  pads get no vibration from the paths in docs/controls.md. Other pads (player 2, a Switch 2 controller over Bluetooth,
+  an unsupported pad) are unchanged. `rumble = 0` or `rumble_strength = 0` silences RenHDrum too; its own settings are in
+  `renhdrum.ini` next to the exe.
+- RenHDrum sends HD packets to any 057E:2009 pad regardless of `rumble_hd`; a third-party Switch Pro pad that drops with
+  `rumble_hd = auto` will do the same here, so set `renhdrum = off`.
+- The bridge is `runtime/third_party/renhdrum/` (MIT OR Apache-2.0, see THIRD_PARTY_NOTICES.md). It is Windows only;
+  other systems build without it and keep the existing rumble.
+
 ## What to report
 
 Open an issue with the issue form, or comment on [#3](https://github.com/Lucas-blip-png/dkb-pc-recomp/issues/3)
