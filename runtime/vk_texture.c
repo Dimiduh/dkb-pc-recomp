@@ -2499,7 +2499,7 @@ static VkSampler make_sampler(VkCtx *c, const samp_par *d) {
     if (si.maxLod < si.minLod) si.maxLod = si.minLod;
     float lim = c->props.limits.maxSamplerLodBias;
     si.mipLodBias = fmaxf(-lim, fminf(lim, d->lod_bias));
-    // DKB_LOD_BIAS = auto (Bananza; read at sampler registration): while a temporal upscaler (upscaler = fsr3, fsr4 or dlss)
+    // DKB_LOD_BIAS = auto (Bananza; read at the first sampler creation): while a temporal upscaler (upscaler = fsr3, fsr4 or dlss)
     // draws from a smaller 3D picture, the same samplers pick their mip level as if the picture had the upscaler's
     // output size: a bias of -log2(output / render), the rule NVIDIA's DLSS guide and AMD's FSR documentation give.
     // Without it textures are filtered for the small picture and stay soft after the upscale; the upscaler's jittered
@@ -2507,13 +2507,16 @@ static VkSampler make_sampler(VkCtx *c, const samp_par *d) {
     // dkb_scene_ratio), 1.5 for "auto", where the game's dynamic resolution usually sits at two thirds
     // (docs/dkb-testing.md). The idea of a mip bias that follows the upscaler is OptiScaler's Mipmap Lod Bias override
     // (https://github.com/optiscaler/OptiScaler, Config.md); no code of it is used. Compare samplers (shadow maps) and
-    // samplers that are nearest or without mip levels keep the game's value.
+    // samplers that are nearest or without mip levels keep the game's value. The gate is vk_temporal_wanted: the
+    // upscaler runs, not just the setting naming it (DLSS without NGX, FSR 4 without AMD's DLLs, which falls back to
+    // FSR 3.1). A failure that only shows once frames are drawn (DLSS feature creation, FSR 3.1 context) comes after
+    // the bias is fixed, and so does a change of the upscaler from the menu: the first value stays until a restart.
     static float upscale_bias = 1;   // 1: not read yet; else <= 0
     if (upscale_bias > 0) {
         upscale_bias = 0;
-        const char *up = cfg_value("DKB_UPSCALER"), *res = cfg_value("DKB_SCENE_RES");
+        const char *res = cfg_value("DKB_SCENE_RES");
         if (!rt_game_version && !strcmp(cfg_value("DKB_LOD_BIAS"), "auto") &&
-            (!strcmp(up, "fsr3") || !strcmp(up, "fsr4") || !strcmp(up, "dlss")) && strcmp(res, "full")) {
+            vk_temporal_wanted() && strcmp(res, "full")) {
             // (as dkb_wide.c dkb_scene_ratio: with scene_res = auto, dlss_mode names the ratio)
             float ratio = strcmp(res, "auto") ? (float)atof(res) : dkb_dlss_mode_ratio(cfg_value("DKB_DLSS_MODE"));
             if (!(ratio >= 1.0f && ratio <= 3.0f)) ratio = 1.5f;
