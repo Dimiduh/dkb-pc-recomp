@@ -17,6 +17,7 @@
 #include "cfg.h"
 #include "gfx.h"
 #include "host.h"
+#include "linux_pressure.h"
 #include "mirror_budget.h"
 #include "mirror_sparse_spv.h"
 #include "nvn_api.h"
@@ -1154,6 +1155,38 @@ static void vram_limit(uint64_t *budget) {
     if (lim && *budget > (uint64_t)lim) *budget = (uint64_t)lim;
 }
 
+// Windows, a GPU that shares system memory (class uma, vk_mem_class_log): the driver charges device-local memory to the
+// commit limit, so the heap budget is capped by what the system can still commit above DKB_MEM_COMMIT_RESERVE_MB
+// (linux_pressure.h lp_uma_budget, #497). The commit figures are read at most every 250 ms. Not on Linux: there
+// Committed_AS passes CommitLimit as a matter of course under the default overcommit, so it says nothing of room.
+static int mem_uma;   // set once by vk_mem_class_log, before any budget query
+static void uma_commit_cap(uint64_t used, uint64_t *budget) {
+#ifdef _WIN32
+    static uint64_t reserve = UINT64_MAX, avail, next_ms;   // racy reads of whole 64-bit words: a stale value is fine
+    static int told;
+    if (!mem_uma) return;
+    if (reserve == UINT64_MAX) reserve = lp_reserve_bytes(cfg_get("DKB_MEM_COMMIT_RESERVE_MB"), LP_COMMIT_RESERVE_MB);
+    if (!reserve) return;
+    uint64_t now = plat_now_ms();
+    if (now >= __atomic_load_n(&next_ms, __ATOMIC_RELAXED)) {
+        double proc, sys, limit;
+        plat_commit_info(&proc, &sys, &limit);
+        if (limit <= 0 || sys < 0) return;
+        __atomic_store_n(&avail, limit > sys ? (uint64_t)((limit - sys) * 1048576.0) : 0, __ATOMIC_RELAXED);
+        __atomic_store_n(&next_ms, now + 250, __ATOMIC_RELAXED);
+    }
+    uint64_t capped = lp_uma_budget(used, *budget, __atomic_load_n(&avail, __ATOMIC_RELAXED), reserve);
+    if (capped < *budget && !__atomic_exchange_n(&told, 1, __ATOMIC_RELAXED))
+        rt_log("vk: shared-memory gpu: the system is near its commit limit (%.0f MiB left, reserve %.0f MiB): the VRAM "
+               "budget drops from %.0f to %.0f MiB so released textures and spare blocks go (DKB_MEM_COMMIT_RESERVE_MB=0 "
+               "turns this off; a larger page file gives more room)", avail / 1048576.0, reserve / 1048576.0,
+               *budget / 1048576.0, capped / 1048576.0);
+    *budget = capped;
+#else
+    (void)used, (void)budget;
+#endif
+}
+
 int vk_mem_vram(uint64_t *used, uint64_t *budget, int *exact) {
     VkCtx *c = vk_ctx();
     *used = *budget = 0, *exact = 0;
@@ -1170,6 +1203,7 @@ int vk_mem_vram(uint64_t *used, uint64_t *budget, int *exact) {
                 *used += b.heapUsage[h], *budget += b.heapBudget[h];
         *exact = 1;
         vram_limit(budget);
+        uma_commit_cap(*used, budget);
         return *budget != 0;
     }
     VmaBudget vb[VK_MAX_MEMORY_HEAPS];
@@ -1178,6 +1212,7 @@ int vk_mem_vram(uint64_t *used, uint64_t *budget, int *exact) {
         if (mp->memoryHeaps[h].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT)
             *used += vb[h].statistics.blockBytes, *budget += mp->memoryHeaps[h].size;
     vram_limit(budget);
+    uma_commit_cap(*used, budget);
     return *budget != 0;
 }
 
@@ -6170,6 +6205,7 @@ void vk_mem_class_log(const VkPhysicalDeviceProperties *p, const VkPhysicalDevic
     else if (host_heap < 0) cls = "uma", why = "every heap is device-local";
     else cls = "discrete", why = "device-local heap separate from host memory";
     int discrete = cls[0] == 'd';
+    mem_uma = !discrete;
     char line[2048];
     size_t k = (size_t)snprintf(line, sizeof line, "mem: class %s (%s; device type %d %s, %s)", cls, why, t, tn, p->deviceName);
     for (uint32_t h = 0; h < m->memoryHeapCount; h++)
